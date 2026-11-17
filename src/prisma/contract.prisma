@@ -1,0 +1,78 @@
+// use prisma-8
+
+model Instituicao {
+  id_instituicao Int @id @default(autoincrement())
+  cnpj VarChar(14) @unique
+  razao_social VarChar(200)
+  endereco VarChar(255)
+  foto VarChar(500)?
+  animais Animal[]
+
+  @@map("instituicoes")
+}
+
+model Animal {
+  id_animal Int @id @default(autoincrement())
+  raca VarChar(100)?
+  tipo VarChar(50)
+  data_nascimento DateString?
+  detalhes String?
+  foto VarChar(500)?
+  apelido VarChar(100)?
+  id_instituicao Int
+  instituicao Instituicao @relation(fields: [id_instituicao], references: [id_instituicao], onDelete: Restrict)
+  vacinacoes AnimalVacina[]
+  matches Match[]
+
+  @@map("animais")
+}
+
+model Vacina {
+  id_vacina Int @id @default(autoincrement())
+  nome VarChar(150)
+  aplicacoes AnimalVacina[]
+
+  @@map("vacinas")
+}
+
+model AnimalVacina {
+  id_animal_vacina Int @id @default(autoincrement())
+  id_animal Int
+  id_vacina Int
+  data_aplicacao DateString
+  animal Animal @relation(fields: [id_animal], references: [id_animal], onDelete: Restrict)
+  vacina Vacina @relation(fields: [id_vacina], references: [id_vacina], onDelete: Restrict)
+
+  @@map("animais_vacinas")
+}
+
+model Adotante {
+  id_adotante Int @id @default(autoincrement())
+  cpf VarChar(11) @unique
+  nome VarChar(200)
+  endereco VarChar(255)
+  tipo_residencia VarChar(30)
+  data_nascimento DateTime?
+  possui_animais Boolean
+  quantidade_animais Int
+  tipos_animais String?
+  matches Match[]
+
+  @@check(expression: "quantidade_animais >= 0 AND ((possui_animais = false AND quantidade_animais = 0) OR (possui_animais = true AND quantidade_animais > 0))", name: "adotante_quantidade_coerente")
+  @@check(expression: "tipo_residencia IN ('CASA', 'APARTAMENTO', 'CHÁCARA', 'OUTRO')", name: "adotante_residencia_valida")
+  @@map("adotantes")
+}
+
+model Match {
+  id_match Int @id @default(autoincrement())
+  id_adotante Int
+  id_animal Int
+  data_pedido DateTime @default(now())
+  status VarChar(20) @default("PENDENTE")
+  adotante Adotante @relation(fields: [id_adotante], references: [id_adotante], onDelete: Restrict)
+  animal Animal @relation(fields: [id_animal], references: [id_animal], onDelete: Restrict)
+
+  @@check(expression: "status IN ('PENDENTE', 'EM ANDAMENTO', 'APROVADO', 'CANCELADO')", name: "match_status_valido")
+  @@index([id_animal], unique: true, where: "status = 'APROVADO'", name: "match_aprovado_unico")
+  @@map("matches")
+}

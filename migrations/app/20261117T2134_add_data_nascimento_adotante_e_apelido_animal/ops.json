@@ -1,0 +1,86 @@
+[
+  {
+    "id": "column.public.adotantes.data_nascimento",
+    "label": "Add column \"data_nascimento\" to \"adotantes\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "data_nascimento",
+        "table": "adotantes"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"data_nascimento\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "adotantes",
+          "data_nascimento"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"data_nascimento\"",
+        "sql": "ALTER TABLE \"public\".\"adotantes\" ADD COLUMN \"data_nascimento\" timestamptz"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"data_nascimento\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "adotantes",
+          "data_nascimento"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.animais.apelido",
+    "label": "Add column \"apelido\" to \"animais\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "apelido",
+        "table": "animais"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"apelido\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "animais",
+          "apelido"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"apelido\"",
+        "sql": "ALTER TABLE \"public\".\"animais\" ADD COLUMN \"apelido\" character varying(100)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"apelido\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "animais",
+          "apelido"
+        ]
+      }
+    ]
+  }
+]

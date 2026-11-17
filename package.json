@@ -1,0 +1,46 @@
+{
+  "name": "match-adotivo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sistema Match de Adoção: API TypeScript, Express, Prisma 8, PostgreSQL e processamento assíncrono de adoções.",
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev": "node scripts/tsx.mjs watch src/server.ts",
+    "start": "node scripts/tsx.mjs src/server.ts",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "contract:emit": "node node_modules/prisma/dist/prisma.js contract emit",
+    "db:init": "node node_modules/prisma/dist/prisma.js db init",
+    "db:migrate": "node node_modules/prisma/dist/prisma.js db migrate --advance-ref db",
+    "migration:plan": "node node_modules/prisma/dist/prisma.js migration plan",
+    "migration:status": "node node_modules/prisma/dist/prisma.js migration status",
+    "docker-up": "docker compose up -d --wait db",
+    "docker-down": "docker compose down",
+    "docker:test:up": "docker compose --profile test up -d --wait db-test",
+    "test": "node scripts/tsx.mjs --test test/*.test.ts",
+    "adocao": "node scripts/tsx.mjs src/cli/adocao.ts",
+    "adocao:erro": "node scripts/tsx.mjs src/cli/adocao.ts --erro",
+    "test:unit": "node scripts/tsx.mjs --test test/adocao.test.ts test/validacao.test.ts",
+    "test:integration": "node scripts/tsx.mjs --test test/api.test.ts",
+    "db:verify": "node node_modules/prisma/dist/prisma.js db verify"
+  },
+  "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^9.1.0",
+    "@prisma/orm-postgres": "8.0.0-rc.13",
+    "dotenv": "^17.2.3",
+    "express": "^5.3.0",
+    "swagger-ui-express": "^5.0.1",
+    "temporal-polyfill": "0.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/swagger-ui-express": "^4.1.8",
+    "prisma": "8.0.0-rc.19",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

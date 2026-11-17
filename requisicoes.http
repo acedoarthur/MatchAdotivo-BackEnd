@@ -1,0 +1,208 @@
+@baseUrl = http://localhost:3001
+
+### Boas-vindas
+GET {{baseUrl}}/
+
+### Descrição
+GET {{baseUrl}}/sobre
+
+### Documentação OpenAPI em JSON (a interface do Swagger fica em {{baseUrl}}/docs)
+GET {{baseUrl}}/docs.json
+
+### Validação do :id → 400 com campo "id"
+GET {{baseUrl}}/animais/abc
+
+### Saudação personalizada
+GET {{baseUrl}}/saudacao/Ana
+
+### Soma
+GET {{baseUrl}}/calculo/soma/10/5
+
+### Criar instituição
+# @name instituicao
+POST {{baseUrl}}/instituicoes
+Content-Type: application/json
+
+{
+  "cnpj": "00.000.000/0000-03",
+  "razao_social": "Abrigo Patas Amigas",
+  "endereco": "Rua das Flores, 100, Uberaba - MG"
+}
+
+### Criar animal vinculado à instituição acima
+# @name animal
+POST {{baseUrl}}/animais
+Content-Type: application/json
+
+{
+  "tipo": "cachorro",
+  "raca": "Sem raça definida",
+  "data_nascimento": "2024-05-10",
+  "detalhes": "Dócil e brincalhão",
+  "apelido": "Bolinha",
+  "id_instituicao": {{instituicao.response.body.$.id_instituicao}}
+}
+
+### Criar vacina
+# @name vacina
+POST {{baseUrl}}/vacinas
+Content-Type: application/json
+
+{"nome": "Antirrábica"}
+
+### Registrar aplicação
+# @name aplicacao
+POST {{baseUrl}}/animais-vacinas
+Content-Type: application/json
+
+{
+  "id_animal": {{animal.response.body.$.id_animal}},
+  "id_vacina": {{vacina.response.body.$.id_vacina}},
+  "data_aplicacao": "2026-05-10"
+}
+
+### Criar adotante
+# @name adotante
+POST {{baseUrl}}/adotantes
+Content-Type: application/json
+
+{
+  "cpf": "000.000.000-02",
+  "nome": "Ana Exemplo",
+  "endereco": "Rua do Sol, 50",
+  "tipo_residencia": "CASA",
+  "data_nascimento": "1990-10-10",
+  "possui_animais": false,
+  "quantidade_animais": 0
+}
+
+### Criar match
+# @name match
+POST {{baseUrl}}/matches
+Content-Type: application/json
+
+{
+  "id_adotante": {{adotante.response.body.$.id_adotante}},
+  "id_animal": {{animal.response.body.$.id_animal}}
+}
+
+### Aprovar match
+PUT {{baseUrl}}/matches/{{match.response.body.$.id_match}}
+Content-Type: application/json
+
+{"status": "APROVADO"}
+
+### Listagens dos seis módulos
+GET {{baseUrl}}/instituicoes
+
+###
+GET {{baseUrl}}/animais
+
+###
+GET {{baseUrl}}/vacinas
+
+###
+GET {{baseUrl}}/animais-vacinas
+
+###
+GET {{baseUrl}}/adotantes
+
+###
+GET {{baseUrl}}/matches
+
+### Consultar por ID
+GET {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+
+### Histórico de vacinação com os detalhes da vacina
+GET {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}/vacinas
+
+### Filtrar por tipo
+GET {{baseUrl}}/animais/tipo/cachorro
+
+### Atualizar instituição
+PUT {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
+Content-Type: application/json
+
+{"foto": "https://example.com/abrigo.jpg"}
+
+### Atualizar animal
+PUT {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+Content-Type: application/json
+
+{"detalhes": "Sociável e acostumado com crianças"}
+
+### Atualizar vacina
+PUT {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
+Content-Type: application/json
+
+{"nome": "Vacina antirrábica"}
+
+### Atualizar dose
+PUT {{baseUrl}}/animais-vacinas/{{aplicacao.response.body.$.id_animal_vacina}}
+Content-Type: application/json
+
+{"data_aplicacao": "2026-05-11"}
+
+### Atualizar adotante
+PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Content-Type: application/json
+
+{"endereco": "Rua do Sol, 100"}
+
+### Validação: nome curto, CPF incompleto e data fora do formato → 400 com details
+POST {{baseUrl}}/adotantes
+Content-Type: application/json
+
+{
+  "cpf": "123",
+  "nome": "Al",
+  "endereco": "Rua do Sol, 50",
+  "tipo_residencia": "HOTEL",
+  "data_nascimento": "20/07/1995",
+  "possui_animais": false,
+  "quantidade_animais": 0
+}
+
+### Validação: adotante menor de 18 anos → 400
+POST {{baseUrl}}/adotantes
+Content-Type: application/json
+
+{
+  "cpf": "000.000.000-03",
+  "nome": "Menor de Idade",
+  "endereco": "Rua do Sol, 50",
+  "tipo_residencia": "CASA",
+  "data_nascimento": "2020-01-01",
+  "possui_animais": false,
+  "quantidade_animais": 0
+}
+
+### Validação: atualização sem nenhum campo → 400
+PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Content-Type: application/json
+
+{}
+
+### Validação: quantidade incoerente com possui_animais → 400
+PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Content-Type: application/json
+
+{"quantidade_animais": 2}
+
+### Exclusões: primeiro os registros que dependem de outros
+DELETE {{baseUrl}}/matches/{{match.response.body.$.id_match}}
+
+###
+DELETE {{baseUrl}}/animais-vacinas/{{aplicacao.response.body.$.id_animal_vacina}}
+
+###
+DELETE {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+
+###
+DELETE {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
+
+###
+DELETE {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+
+###
+DELETE {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
