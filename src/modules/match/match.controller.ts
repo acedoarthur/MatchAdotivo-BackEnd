@@ -1,26 +1,27 @@
+import type { Request, Response } from 'express';
 import type { Database } from '../../prisma/db';
 import type { CrudController } from '../../shared/crud.routes';
-import { lerId, encontrado } from '../../shared/validacao';
+import { lerId } from '../../shared/validacao';
+import { matchService } from './match.service';
 import type { CreateMatchDTO, UpdateMatchDTO } from './match.types';
-import { criarMatch, alterarStatusMatch, excluirMatch } from './match.service';
 
-export function matchController(db: Database): CrudController {
-  const model = db.orm.public.Match;
+export function matchController(db: Database): CrudController & { hoje: (req: Request, res: Response) => Promise<void> } {
+  const service = matchService(db);
   return {
-    getAll: async (req, res) => { res.json(await model.orderBy((m) => m.id_match.asc()).all()); },
-    getById: async (req, res) => { res.json(encontrado(await model.where({ id_match: lerId(req) }).first())); },
+    getAll: async (req, res) => { res.json(await service.getAll()); },
+    hoje: async (req, res) => { res.json(await service.findPedidosHoje()); },
+    getById: async (req, res) => { res.json(await service.findById(lerId(req))); },
     create: async (req, res) => {
       const data: CreateMatchDTO = req.body;
-      const novo = await criarMatch(db, data);
+      const novo = await service.create(data);
       res.location(`/matches/${novo.id_match}`).status(201).json(novo);
     },
     update: async (req, res) => {
-      const id_match = lerId(req);
       const { status }: UpdateMatchDTO = req.body;
-      res.json(await alterarStatusMatch(db, id_match, status!));
+      res.json(await service.updateStatus(lerId(req), status!));
     },
     remove: async (req, res) => {
-      await excluirMatch(db, lerId(req));
+      await service.delete(lerId(req));
       res.status(204).send();
     },
   };

@@ -11,6 +11,7 @@ GET {{baseUrl}}/docs.json
 
 ### Validação do :id → 400 com campo "id"
 GET {{baseUrl}}/animais/abc
+Authorization: Bearer {{token}}
 
 ### Saudação personalizada
 GET {{baseUrl}}/saudacao/Ana
@@ -18,9 +19,40 @@ GET {{baseUrl}}/saudacao/Ana
 ### Soma
 GET {{baseUrl}}/calculo/soma/10/5
 
+### Cadastrar usuário (rota pública; a senha é gravada criptografada)
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Maria da Silva",
+  "email": "maria@email.com",
+  "senha": "senhaSegura123"
+}
+
+### Login: devolve o token JWT (válido por 1 hora)
+# @name login
+POST {{baseUrl}}/usuarios/login
+Content-Type: application/json
+
+{
+  "email": "maria@email.com",
+  "senha": "senhaSegura123"
+}
+
+### Token usado nas requisições protegidas abaixo (execute o login antes)
+@token = {{login.response.body.$.token}}
+
+### Listar usuários (protegida; a resposta não traz as senhas)
+GET {{baseUrl}}/usuarios
+Authorization: Bearer {{token}}
+
+### Sem token → 401 "Token não informado"
+GET {{baseUrl}}/instituicoes
+
 ### Criar instituição
 # @name instituicao
 POST {{baseUrl}}/instituicoes
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -32,6 +64,7 @@ Content-Type: application/json
 ### Criar animal vinculado à instituição acima
 # @name animal
 POST {{baseUrl}}/animais
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -46,6 +79,7 @@ Content-Type: application/json
 ### Criar vacina
 # @name vacina
 POST {{baseUrl}}/vacinas
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"nome": "Antirrábica"}
@@ -53,6 +87,7 @@ Content-Type: application/json
 ### Registrar aplicação
 # @name aplicacao
 POST {{baseUrl}}/animais-vacinas
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -64,6 +99,7 @@ Content-Type: application/json
 ### Criar adotante
 # @name adotante
 POST {{baseUrl}}/adotantes
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -79,6 +115,7 @@ Content-Type: application/json
 ### Criar match
 # @name match
 POST {{baseUrl}}/matches
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -86,71 +123,91 @@ Content-Type: application/json
   "id_animal": {{animal.response.body.$.id_animal}}
 }
 
+### Pedidos feitos hoje (horário de Brasília)
+GET {{baseUrl}}/matches/hoje
+Authorization: Bearer {{token}}
+
 ### Aprovar match
 PUT {{baseUrl}}/matches/{{match.response.body.$.id_match}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"status": "APROVADO"}
 
 ### Listagens dos seis módulos
 GET {{baseUrl}}/instituicoes
+Authorization: Bearer {{token}}
 
 ###
 GET {{baseUrl}}/animais
+Authorization: Bearer {{token}}
 
 ###
 GET {{baseUrl}}/vacinas
+Authorization: Bearer {{token}}
 
 ###
 GET {{baseUrl}}/animais-vacinas
+Authorization: Bearer {{token}}
 
 ###
 GET {{baseUrl}}/adotantes
+Authorization: Bearer {{token}}
 
 ###
 GET {{baseUrl}}/matches
+Authorization: Bearer {{token}}
 
 ### Consultar por ID
 GET {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+Authorization: Bearer {{token}}
 
 ### Histórico de vacinação com os detalhes da vacina
 GET {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}/vacinas
+Authorization: Bearer {{token}}
 
 ### Filtrar por tipo
 GET {{baseUrl}}/animais/tipo/cachorro
+Authorization: Bearer {{token}}
 
 ### Atualizar instituição
 PUT {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"foto": "https://example.com/abrigo.jpg"}
 
 ### Atualizar animal
 PUT {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"detalhes": "Sociável e acostumado com crianças"}
 
 ### Atualizar vacina
 PUT {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"nome": "Vacina antirrábica"}
 
 ### Atualizar dose
 PUT {{baseUrl}}/animais-vacinas/{{aplicacao.response.body.$.id_animal_vacina}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"data_aplicacao": "2026-05-11"}
 
 ### Atualizar adotante
 PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"endereco": "Rua do Sol, 100"}
 
 ### Validação: nome curto, CPF incompleto e data fora do formato → 400 com details
 POST {{baseUrl}}/adotantes
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -165,6 +222,7 @@ Content-Type: application/json
 
 ### Validação: adotante menor de 18 anos → 400
 POST {{baseUrl}}/adotantes
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
@@ -179,30 +237,42 @@ Content-Type: application/json
 
 ### Validação: atualização sem nenhum campo → 400
 PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {}
 
 ### Validação: quantidade incoerente com possui_animais → 400
 PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {"quantidade_animais": 2}
 
 ### Exclusões: primeiro os registros que dependem de outros
 DELETE {{baseUrl}}/matches/{{match.response.body.$.id_match}}
+Authorization: Bearer {{token}}
 
 ###
 DELETE {{baseUrl}}/animais-vacinas/{{aplicacao.response.body.$.id_animal_vacina}}
+Authorization: Bearer {{token}}
 
 ###
 DELETE {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
+Authorization: Bearer {{token}}
 
 ###
 DELETE {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
+Authorization: Bearer {{token}}
 
 ###
 DELETE {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
+Authorization: Bearer {{token}}
 
 ###
 DELETE {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
+Authorization: Bearer {{token}}
+
+### Logout (execute por último): invalida o token; depois dele, as rotas protegidas respondem 401 "Token inválido"
+POST {{baseUrl}}/usuarios/logout
+Authorization: Bearer {{token}}

@@ -1,41 +1,54 @@
-import type { Database, Transaction } from '../../prisma/db';
+import type { Database } from '../../prisma/db';
 import type { Varchar } from '@prisma/orm-postgres/target/codec-types';
-import { exigir, encontrado } from '../../shared/validacao';
+import { ConflictError } from '../../shared/errors';
+import { emTransacao } from '../../shared/repository';
+import { encontrado } from '../../shared/validacao';
+import { adotanteRepository } from '../adotante/adotante.repo';
+import { animalRepository } from '../animal/animal.repo';
+import { matchRepository } from './match.repo';
 import { APROVADO, type CreateMatchDTO } from './match.types';
 
-async function bloquearAnimal(db: Database, tx: Transaction, id_animal: number) {
-  await tx.query(db.raw.sql`SELECT id_animal FROM animais WHERE id_animal = ${id_animal} FOR UPDATE`
-    .returnsRow({ id_animal: 'pg/int4@1' }).build());
-  encontrado(await tx.orm.public.Animal.where({ id_animal }).first());
-}
+/*
+Regras de negócio do match (RN03 e RN04). O acesso ao banco fica nos repositories;
+as operações de escrita rodam em uma transação com a linha do animal bloqueada.
+*/
+export function matchService(db: Database) {
+  const repo = matchRepository(db);
+  return {
+    getAll: () => repo.findAll(),
 
-// Os dados chegam validados pelos schemas Zod (API) ou pelo comando de adoção (console).
-export function criarMatch(db: Database, dados: CreateMatchDTO) {
-  return db.transaction(async (tx) => {
-    await bloquearAnimal(db, tx, dados.id_animal);
-    encontrado(await tx.orm.public.Adotante.where({ id_adotante: dados.id_adotante }).first());
-    const aprovado = await tx.orm.public.Match.where({ id_animal: dados.id_animal, status: APROVADO }).first();
-    exigir(!aprovado, 'Este animal já possui uma adoção aprovada.', 409);
-    return tx.orm.public.Match.create(dados);
-  });
-}
+    // O match precisa existir; senão, NotFoundError (404).
+    findById: async (id: number) => encontrado(await repo.findById(id)),
 
-export function alterarStatusMatch(db: Database, id_match: number, status: Varchar<20>) {
-  return db.transaction(async (tx) => {
-    const atual = encontrado(await tx.orm.public.Match.where({ id_match }).first());
-    await bloquearAnimal(db, tx, atual.id_animal);
-    if (status === 'APROVADO') {
-      const aprovado = await tx.orm.public.Match.where({ id_animal: atual.id_animal, status: APROVADO }).first();
-      exigir(!aprovado || aprovado.id_match === id_match, 'Este animal já possui outra adoção aprovada.', 409);
-    }
-    return encontrado(await tx.orm.public.Match.where({ id_match }).update({ status }));
-  });
-}
+    // Pedidos feitos hoje (fuso de Brasília).
+    findPedidosHoje: () => repo.findPedidosHoje(),
 
-export function excluirMatch(db: Database, id_match: number) {
-  return db.transaction(async (tx) => {
-    const atual = encontrado(await tx.orm.public.Match.where({ id_match }).first());
-    await bloquearAnimal(db, tx, atual.id_animal);
-    return encontrado(await tx.orm.public.Match.where({ id_match }).delete());
-  });
+    // RN03: um adotante e um animal existentes. RN04: animal com adoção aprovada não recebe pedidos.
+    create: (dados: CreateMatchDTO) => emTransacao(db, async (tx) => {
+      encontrado(await animalRepository(db, tx).bloquear(dados.id_animal));
+      encontrado(await adotanteRepository(db, tx).findById(dados.id_adotante));
+      const matches = matchRepository(db, tx);
+      if (await matches.findAprovadoByAnimal(dados.id_animal)) throw new ConflictError('Este animal já possui uma adoção aprovada.');
+      return matches.create(dados);
+    }),
+
+    // RN04: no máximo um match APROVADO por animal.
+    updateStatus: (id_match: number, status: Varchar<20>) => emTransacao(db, async (tx) => {
+      const matches = matchRepository(db, tx);
+      const atual = encontrado(await matches.findById(id_match));
+      encontrado(await animalRepository(db, tx).bloquear(atual.id_animal));
+      if (status === APROVADO) {
+        const aprovado = await matches.findAprovadoByAnimal(atual.id_animal);
+        if (aprovado && aprovado.id_match !== id_match) throw new ConflictError('Este animal já possui outra adoção aprovada.');
+      }
+      return encontrado(await matches.updateStatus(id_match, status));
+    }),
+
+    delete: (id_match: number) => emTransacao(db, async (tx) => {
+      const matches = matchRepository(db, tx);
+      const atual = encontrado(await matches.findById(id_match));
+      encontrado(await animalRepository(db, tx).bloquear(atual.id_animal));
+      return encontrado(await matches.delete(id_match));
+    }),
+  };
 }

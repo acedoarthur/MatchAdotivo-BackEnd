@@ -76,3 +76,13 @@ model Match {
   @@index([id_animal], unique: true, where: "status = 'APROVADO'", name: "match_aprovado_unico")
   @@map("matches")
 }
+
+model Usuario {
+  id_usuario Int @id @default(autoincrement())
+  nome VarChar(200)
+  email VarChar(255) @unique
+  senha VarChar(100)
+  created_at DateTime @default(now())
+
+  @@map("usuarios")
+}

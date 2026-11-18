@@ -24,6 +24,10 @@
       "model": "Match",
       "namespace": "public"
     },
+    "usuarios": {
+      "model": "Usuario",
+      "namespace": "public"
+    },
     "vacinas": {
       "model": "Vacina",
       "namespace": "public"
@@ -582,6 +586,76 @@
               "table": "matches"
             }
           },
+          "Usuario": {
+            "fields": {
+              "created_at": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-temporal@1",
+                  "kind": "scalar"
+                }
+              },
+              "email": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sql/varchar@1",
+                  "kind": "scalar",
+                  "typeParams": {
+                    "length": 255
+                  }
+                }
+              },
+              "id_usuario": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "nome": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sql/varchar@1",
+                  "kind": "scalar",
+                  "typeParams": {
+                    "length": 200
+                  }
+                }
+              },
+              "senha": {
+                "nullable": false,
+                "type": {
+                  "codecId": "sql/varchar@1",
+                  "kind": "scalar",
+                  "typeParams": {
+                    "length": 100
+                  }
+                }
+              }
+            },
+            "relations": {},
+            "storage": {
+              "fields": {
+                "created_at": {
+                  "column": "created_at"
+                },
+                "email": {
+                  "column": "email"
+                },
+                "id_usuario": {
+                  "column": "id_usuario"
+                },
+                "nome": {
+                  "column": "nome"
+                },
+                "senha": {
+                  "column": "senha"
+                }
+              },
+              "namespaceId": "public",
+              "table": "usuarios"
+            }
+          },
           "Vacina": {
             "fields": {
               "id_vacina": {
@@ -1086,6 +1160,66 @@
               },
               "uniques": []
             },
+            "usuarios": {
+              "columns": {
+                "created_at": {
+                  "codecId": "pg/timestamptz-temporal@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "email": {
+                  "codecId": "sql/varchar@1",
+                  "nativeType": "character varying",
+                  "nullable": false,
+                  "typeParams": {
+                    "length": 255
+                  }
+                },
+                "id_usuario": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "expression": "autoincrement()",
+                    "kind": "function"
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "nome": {
+                  "codecId": "sql/varchar@1",
+                  "nativeType": "character varying",
+                  "nullable": false,
+                  "typeParams": {
+                    "length": 200
+                  }
+                },
+                "senha": {
+                  "codecId": "sql/varchar@1",
+                  "nativeType": "character varying",
+                  "nullable": false,
+                  "typeParams": {
+                    "length": 100
+                  }
+                }
+              },
+              "foreignKeys": [],
+              "indexes": [],
+              "primaryKey": {
+                "columns": [
+                  "id_usuario"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "email"
+                  ]
+                }
+              ]
+            },
             "vacinas": {
               "columns": {
                 "id_vacina": {
@@ -1121,7 +1255,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "4fc5cd4bd43e7f8dd4f3b3a24a7e023109eb40f3e9591856c1be8f48a450843e"
+    "storageHash": "0f08593dfd967a13f9fe4fd90ed8c8533294b76b20256bb2d92d1ad7c7be03eb"
   },
   "capabilities": {
     "postgres": {

@@ -13,6 +13,13 @@ import { vacinaResponseSchema } from '../src/modules/vacina/vacina.schema';
 import { animalVacinaResponseSchema, animalVacinaDetalhadaResponseSchema } from '../src/modules/animal-vacina/animal-vacina.schema';
 import { adotanteResponseSchema } from '../src/modules/adotante/adotante.schema';
 import { matchResponseSchema } from '../src/modules/match/match.schema';
+import { instituicaoRepository } from '../src/modules/instituicao/instituicao.repo';
+import { animalRepository } from '../src/modules/animal/animal.repo';
+import { adotanteRepository } from '../src/modules/adotante/adotante.repo';
+import { matchRepository } from '../src/modules/match/match.repo';
+import { emTransacao, RegistroDuplicadoError, ReferenciaInvalidaError, DadosInvalidosError } from '../src/shared/repository';
+import jwt from 'jsonwebtoken';
+import { usuarioResponseSchema } from '../src/modules/usuario/usuario.schema';
 import { processarAdocao } from '../src/modules/match/adocao.service';
 
 let db: Database;
@@ -41,10 +48,14 @@ after(async () => {
   if (db) await db.close();
 });
 
-async function request(path: string, method = 'GET', body?: unknown) {
+// Token do usuário de teste, criado a cada cenário; as rotas do sistema exigem login.
+let token = '';
+const autorizacao = () => ({ Authorization: `Bearer ${token}` });
+
+async function request(path: string, method = 'GET', body?: unknown, semToken = false) {
   const response = await fetch(`${url}${path}`, {
     method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(semToken ? {} : autorizacao()) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return {
@@ -64,7 +75,10 @@ const dadosAdotante = {
 
 beforeEach(async () => {
   // Apenas o banco dedicado e validado acima é limpo, nunca DATABASE_URL.
-  await db.runtime().execute(db.raw.sql`TRUNCATE matches, animais_vacinas, animais, vacinas, adotantes, instituicoes RESTART IDENTITY CASCADE`.affectedCount().build());
+  await db.runtime().execute(db.raw.sql`TRUNCATE matches, animais_vacinas, animais, vacinas, adotantes, instituicoes, usuarios RESTART IDENTITY CASCADE`.affectedCount().build());
+  const credenciais = { email: 'teste@email.com', senha: 'senhaSegura123' };
+  await request('/usuarios', 'POST', { nome: 'Usuário Teste', ...credenciais }, true);
+  token = (await request('/usuarios/login', 'POST', credenciais, true)).data.token;
   instituicao = (await request('/instituicoes', 'POST', {
     cnpj: '00.000.000/0000-01', razao_social: 'Abrigo Teste', endereco: 'Rua B, 20',
   })).data.id_instituicao;
@@ -185,7 +199,7 @@ test('validação de IDs, corpos, JSON e atualizações vazias retorna erros HTT
   assert.equal((await request('/vacinas', 'POST')).status, 400);
   assert.equal((await request(`/vacinas/${vacina}`, 'PUT', {})).status, 400);
   assert.equal((await request(`/vacinas/${vacina}`, 'PUT', { id_vacina: 99 })).status, 400);
-  const resposta = await fetch(`${url}/vacinas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"nome":' });
+  const resposta = await fetch(`${url}/vacinas`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...autorizacao() }, body: '{"nome":' });
   assert.equal(resposta.status, 400);
   await resposta.json();
   assert.equal((await request('/nao-existe')).status, 404);
@@ -346,7 +360,7 @@ test('documentação OpenAPI é publicada em /docs.json e a interface do Swagger
   for (const esperado of [
     '/instituicoes', '/instituicoes/{id}', '/animais', '/animais/{id}', '/animais/tipo/{tipo}', '/animais/{id}/vacinas',
     '/vacinas', '/vacinas/{id}', '/animais-vacinas', '/animais-vacinas/{id}', '/adotantes', '/adotantes/{id}',
-    '/matches', '/matches/{id}', '/matches/{id}/status', '/', '/sobre', '/saudacao/{nome}', '/calculo/soma/{num1}/{num2}',
+    '/matches', '/matches/hoje', '/matches/{id}', '/matches/{id}/status', '/', '/sobre', '/saudacao/{nome}', '/calculo/soma/{num1}/{num2}',
   ]) assert.ok(caminhos.includes(esperado), esperado);
   assert.deepEqual(Object.keys(doc.data.paths['/matches/{id}']).sort(), ['delete', 'get', 'put']);
   for (const nome of ['ErrorResponse', 'ValidationErrorResponse', 'CreateAdotanteInput', 'UpdateAnimalInput', 'Match']) {
@@ -403,7 +417,7 @@ test('os códigos de erro devolvidos pela API estão documentados na rota corres
     assert.ok(documentados.includes(String(resposta.status)), `${metodo.toUpperCase()} ${modelo} devolveu ${resposta.status}; documentados: ${documentados}`);
   };
   const malformado = (caminho: string, metodo: string, corpo: string) =>
-    fetch(`${url}${caminho}`, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: corpo });
+    fetch(`${url}${caminho}`, { method: metodo, headers: { 'Content-Type': 'application/json', ...autorizacao() }, body: corpo });
   const aprovar = async (id: number) => request(`/matches/${id}`, 'PUT', { status: 'APROVADO' });
 
   const primeiro = (await request('/matches', 'POST', { id_adotante: adotante, id_animal: animal })).data.id_match;
@@ -429,6 +443,7 @@ test('os códigos de erro devolvidos pela API estão documentados na rota corres
   conferir(await request('/matches', 'POST', { id_adotante: adotante, id_animal: animal }), 'post', '/matches');
   conferir(await aprovar(segundo), 'put', '/matches/{id}');
   conferir(await request('/matches/999', 'DELETE'), 'delete', '/matches/{id}');
+  conferir(await request('/matches/hoje'), 'get', '/matches/hoje');
   conferir(await request(`/matches/${segundo}/status`, 'PATCH', { status: 'APROVADO' }), 'patch', '/matches/{id}/status');
   conferir(await request('/matches/999/status', 'PATCH', { status: 'CANCELADO' }), 'patch', '/matches/{id}/status');
   conferir(await request('/saudacao/%E0%A4%A'), 'get', '/saudacao/{nome}');
@@ -440,4 +455,201 @@ test('os códigos de erro devolvidos pela API estão documentados na rota corres
     conferir(json, metodo.toLowerCase(), modelo);
     conferir(await malformado(caminho, metodo, JSON.stringify({ nome: 'a'.repeat(110000) })).then((r) => r), metodo.toLowerCase(), modelo);
   }
+});
+
+test('repositories traduzem erros do banco em erros da aplicação e retornam null quando não há registro', async () => {
+  const instituicoes = instituicaoRepository(db);
+  assert.equal(await instituicoes.findById(999999), null);
+  assert.equal(await instituicoes.update(999999, { endereco: varchar<255>('R') }), null);
+  assert.equal(await instituicoes.delete(999999), null);
+  const existente = (await instituicoes.findAll())[0];
+  await assert.rejects(instituicoes.create({ cnpj: existente.cnpj, razao_social: varchar<200>('Dup'), endereco: varchar<255>('R') }), RegistroDuplicadoError);
+  await assert.rejects(instituicoes.delete(existente.id_instituicao), ReferenciaInvalidaError);
+  await assert.rejects(adotanteRepository(db).update(adotante, { quantidade_animais: -1 }), DadosInvalidosError);
+  assert.equal((await animalRepository(db).findByTipo(varchar<50>('cachorro'))).length, 1);
+});
+
+test('transação com bloqueio do animal: operações são desfeitas em caso de erro', async () => {
+  await assert.rejects(animalRepository(db).bloquear(animal), /exige uma transação/);
+  await assert.rejects(emTransacao(db, async (tx) => {
+    assert.ok(await animalRepository(db, tx).bloquear(animal));
+    assert.equal(await animalRepository(db, tx).bloquear(999999), null);
+    await matchRepository(db, tx).create({ id_adotante: adotante, id_animal: animal });
+    throw new Error('desfaz');
+  }), /desfaz/);
+  assert.deepEqual(await matchRepository(db).findAll(), []);
+  const criado = await emTransacao(db, (tx) => matchRepository(db, tx).create({ id_adotante: adotante, id_animal: animal }));
+  assert.equal((await matchRepository(db).findById(criado.id_match))?.status, 'PENDENTE');
+  assert.equal(await matchRepository(db).findAprovadoByAnimal(animal), null);
+});
+
+test('buscas de regra de negócio: adotante por CPF e pedidos de hoje no fuso de Brasília', async () => {
+  const encontrado = await adotanteRepository(db).findByCpf(varchar<11>('00000000001'));
+  assert.equal(encontrado?.id_adotante, adotante);
+  assert.equal(await adotanteRepository(db).findByCpf(varchar<11>('99999999999')), null);
+
+  const hoje = await matchRepository(db).create({ id_adotante: adotante, id_animal: animal });
+  const ontem = await db.orm.public.Match.create({
+    id_adotante: adotante, id_animal: animal, data_pedido: Temporal.Now.instant().subtract({ hours: 30 }),
+  });
+  const amanha = await db.orm.public.Match.create({
+    id_adotante: adotante, id_animal: animal, data_pedido: Temporal.Now.instant().add({ hours: 30 }),
+  });
+  const ids = (await matchRepository(db).findPedidosHoje()).map((m) => m.id_match);
+  assert.deepEqual(ids, [hoje.id_match]);
+  assert.ok(!ids.includes(ontem.id_match) && !ids.includes(amanha.id_match));
+});
+
+test('services aplicam as regras de unicidade com mensagem clara e permitem manter o próprio valor', async () => {
+  const outra = (await request('/instituicoes', 'POST', { cnpj: '00000000000002', razao_social: 'Outra', endereco: 'R' })).location!;
+  const duplicada = await request('/instituicoes', 'POST', { cnpj: '00.000.000/0000-01', razao_social: 'Dup', endereco: 'R' });
+  assert.deepEqual([duplicada.status, duplicada.data], [409, { error: 'CNPJ já cadastrado' }]);
+  assert.equal((await request(outra, 'PUT', { cnpj: '00000000000002', razao_social: 'Mesma' })).status, 200);
+  const conflito = await request(outra, 'PUT', { cnpj: '00000000000001' });
+  assert.deepEqual([conflito.status, conflito.data], [409, { error: 'CNPJ já utilizado por outra instituição' }]);
+
+  const dup = await request('/adotantes', 'POST', { ...dadosAdotante, cpf: '000.000.000-01' });
+  assert.deepEqual([dup.status, dup.data], [409, { error: 'CPF já cadastrado' }]);
+  const outro = (await request('/adotantes', 'POST', { ...dadosAdotante, cpf: '00000000003' })).location!;
+  assert.equal((await request(outro, 'PUT', { cpf: '00000000003', nome: 'Mesmo CPF' })).status, 200);
+  const conflitoCpf = await request(outro, 'PUT', { cpf: '00000000001' });
+  assert.deepEqual([conflitoCpf.status, conflitoCpf.data], [409, { error: 'CPF já utilizado por outro adotante' }]);
+  // 404 do service tem prioridade sobre as demais regras.
+  assert.equal((await request('/adotantes/999999', 'PUT', { cpf: '00000000001' })).status, 404);
+});
+
+test('cadastros simultâneos com o mesmo CNPJ/CPF resultam em um 201 e os demais 409, sem 500', async () => {
+  const cnpj = await Promise.all(Array.from({ length: 6 }, () => request('/instituicoes', 'POST', { cnpj: '00000000000009', razao_social: 'Corrida', endereco: 'R' })));
+  assert.deepEqual(cnpj.map((r) => r.status).sort(), [201, 409, 409, 409, 409, 409]);
+  const cpf = await Promise.all(Array.from({ length: 6 }, () => request('/adotantes', 'POST', { ...dadosAdotante, cpf: '00000000009' })));
+  assert.deepEqual(cpf.map((r) => r.status).sort(), [201, 409, 409, 409, 409, 409]);
+});
+
+test('GET /matches/hoje lista os pedidos de hoje e não é confundido com um id', async () => {
+  assert.deepEqual((await request('/matches/hoje')).data, []);
+  const novo = await request('/matches', 'POST', { id_adotante: adotante, id_animal: animal });
+  const hoje = await request('/matches/hoje');
+  assert.equal(hoje.status, 200);
+  assert.deepEqual(hoje.data.map((m: { id_match: number }) => m.id_match), [novo.data.id_match]);
+  matchResponseSchema.parse(hoje.data[0]);
+  assert.equal((await request('/matches/abc')).status, 400);
+  assert.equal((await request(novo.location!, 'DELETE')).status, 204);
+  assert.equal((await request(novo.location!, 'DELETE')).status, 404);
+});
+
+const novoUsuario = { nome: 'Maria da Silva', email: 'maria@email.com', senha: 'senhaSegura123' };
+
+test('cadastro de usuário: senha criptografada com bcrypt, nunca devolvida, e-mail único sem diferenciar maiúsculas', async () => {
+  const criado = await request('/usuarios', 'POST', { ...novoUsuario, email: ' Maria@Email.com ' }, true);
+  assert.equal(criado.status, 201);
+  assert.deepEqual(Object.keys(criado.data).sort(), ['created_at', 'email', 'id_usuario', 'nome']);
+  assert.equal(criado.data.email, 'maria@email.com');
+  usuarioResponseSchema.parse(criado.data);
+  const gravado = await db.orm.public.Usuario.where({ id_usuario: criado.data.id_usuario }).first();
+  assert.match(gravado!.senha, /^\$2[aby]\$10\$/);
+  assert.notEqual(gravado!.senha, novoUsuario.senha);
+  const repetido = await request('/usuarios', 'POST', { ...novoUsuario, email: 'MARIA@email.com' }, true);
+  assert.deepEqual([repetido.status, repetido.data], [409, { error: 'E-mail já cadastrado' }]);
+  const simultaneos = await Promise.all(Array.from({ length: 5 }, () => request('/usuarios', 'POST', { ...novoUsuario, email: 'corrida@email.com' }, true)));
+  assert.deepEqual(simultaneos.map((r) => r.status).sort(), [201, 409, 409, 409, 409]);
+});
+
+test('cadastro de usuário valida nome, e-mail e senha com o formato padrão de erros', async () => {
+  const invalido = await request('/usuarios', 'POST', { nome: 'Al', email: 'nao-e-email', senha: '123' }, true);
+  assert.equal(invalido.status, 400);
+  assert.deepEqual(invalido.data.details.map((d: { campo: string }) => d.campo).sort(), ['email', 'nome', 'senha']);
+  const mensagens = Object.fromEntries(invalido.data.details.map((d: { campo: string; mensagem: string }) => [d.campo, d.mensagem]));
+  assert.equal(mensagens.email, 'O email deve ser válido');
+  assert.equal(mensagens.senha, 'A senha deve ter pelo menos 8 caracteres');
+  assert.equal((await request('/usuarios', 'POST', { ...novoUsuario, senha: 'a'.repeat(73) }, true)).status, 400);
+  assert.equal((await request('/usuarios', 'POST', { ...novoUsuario, email: `${'a'.repeat(250)}@x.com` }, true)).status, 400);
+  assert.equal((await request('/usuarios', 'POST', undefined, true)).status, 400);
+  assert.equal((await request('/usuarios/login', 'POST', { email: 'x@y.com' }, true)).status, 400);
+});
+
+test('login devolve JWT de 1 hora com o id e responde igual para e-mail inexistente e senha errada', async () => {
+  await request('/usuarios', 'POST', novoUsuario, true);
+  const ok = await request('/usuarios/login', 'POST', { email: 'MARIA@email.com', senha: novoUsuario.senha }, true);
+  assert.equal(ok.status, 200);
+  const payload = jwt.decode(ok.data.token) as { id: number; iat: number; exp: number };
+  assert.equal(typeof payload.id, 'number');
+  assert.equal(payload.exp - payload.iat, 3600);
+  const senhaErrada = await request('/usuarios/login', 'POST', { email: novoUsuario.email, senha: 'outraSenha123' }, true);
+  const naoExiste = await request('/usuarios/login', 'POST', { email: 'ninguem@email.com', senha: novoUsuario.senha }, true);
+  assert.deepEqual([senhaErrada.status, senhaErrada.data], [401, { error: 'Credenciais inválidas' }]);
+  assert.deepEqual([naoExiste.status, naoExiste.data], [401, { error: 'Credenciais inválidas' }]);
+});
+
+test('rotas do sistema exigem token: ausente, mal formado, alterado, expirado ou de outro segredo → 401', async () => {
+  for (const caminho of ['/instituicoes', '/animais', '/vacinas', '/animais-vacinas', '/adotantes', '/matches', '/matches/hoje', '/animais/tipo/gato', `/animais/${animal}/vacinas`, '/instituicoes/abc']) {
+    const sem = await request(caminho, 'GET', undefined, true);
+    assert.deepEqual([sem.status, sem.data], [401, { error: 'Token não informado' }], caminho);
+  }
+  for (const [metodo, caminho, corpo] of [['POST', '/vacinas', { nome: 'X' }], ['PUT', `/vacinas/${vacina}`, { nome: 'X' }], ['DELETE', `/vacinas/${vacina}`], ['PATCH', '/matches/1/status', { status: 'CANCELADO' }], ['POST', '/matches', {}]] as [string, string, unknown?][]) {
+    assert.equal((await request(caminho, metodo, corpo, true)).status, 401, `${metodo} ${caminho}`);
+  }
+  const chamar = (cabecalho?: string) => fetch(`${url}/vacinas`, { headers: cabecalho ? { Authorization: cabecalho } : {} }).then(async (r) => [r.status, await r.json()]);
+  assert.deepEqual(await chamar(`Basic ${token}`), [401, { error: 'Token não informado' }]);
+  assert.deepEqual(await chamar('Bearer'), [401, { error: 'Token não informado' }]);
+  assert.deepEqual(await chamar(`Bearer ${token} extra`), [401, { error: 'Token não informado' }]);
+  assert.deepEqual(await chamar(`bearer ${token}`), [401, { error: 'Token não informado' }]);
+  const invalido = { error: 'Token inválido ou expirado' };
+  assert.deepEqual(await chamar('Bearer abc.def.ghi'), [401, invalido]);
+  const partes = token.split('.');
+  const adulterado = `${partes[0]}.${Buffer.from(JSON.stringify({ id: 999, iat: 1 })).toString('base64url')}.${partes[2]}`;
+  assert.deepEqual(await chamar(`Bearer ${adulterado}`), [401, invalido]);
+  assert.deepEqual(await chamar(`Bearer ${jwt.sign({ id: 1 }, 'outro-segredo', { expiresIn: '1h' })}`), [401, invalido]);
+  assert.deepEqual(await chamar(`Bearer ${jwt.sign({ id: 1 }, process.env.JWT_SECRET!, { expiresIn: -10 })}`), [401, invalido]);
+  assert.deepEqual(await chamar(`Bearer ${jwt.sign({ id: 1 }, process.env.JWT_SECRET!, { algorithm: 'HS512' })}`), [401, invalido]);
+  assert.deepEqual(await chamar(`Bearer ${jwt.sign({ sub: 'x' }, process.env.JWT_SECRET!)}`), [401, invalido]);
+  assert.equal((await chamar(`Bearer ${token}`))[0], 200);
+});
+
+test('rotas públicas continuam abertas: básicas, documentação, cadastro e login', async () => {
+  for (const caminho of ['/', '/sobre', '/saudacao/Ana', '/calculo/soma/1/2', '/docs.json']) {
+    assert.equal((await request(caminho, 'GET', undefined, true)).status, 200, caminho);
+  }
+  assert.equal((await fetch(`${url}/docs/`)).status, 200);
+  assert.equal((await request('/nao-existe', 'GET', undefined, true)).status, 404);
+});
+
+test('GET /usuarios exige token e lista sem as senhas; logout invalida o token', async () => {
+  assert.equal((await request('/usuarios', 'GET', undefined, true)).status, 401);
+  const lista = await request('/usuarios');
+  assert.equal(lista.status, 200);
+  assert.equal(lista.data.length, 1);
+  for (const usuario of lista.data) { usuarioResponseSchema.parse(usuario); assert.equal('senha' in usuario, false); }
+
+  assert.equal((await request('/usuarios/logout', 'POST', undefined, true)).status, 401);
+  const saiu = await request('/usuarios/logout', 'POST');
+  assert.deepEqual([saiu.status, saiu.data], [200, { message: 'Logout realizado com sucesso' }]);
+  // Mesmo token: agora invalidado em todas as rotas protegidas.
+  assert.deepEqual((await request('/vacinas')).data, { error: 'Token inválido' });
+  assert.equal((await request('/vacinas')).status, 401);
+  assert.equal((await request('/usuarios/logout', 'POST')).status, 401);
+  // Um novo login, mesmo logo após o logout, gera outro token válido (jti único).
+  const novo = await request('/usuarios/login', 'POST', { email: 'teste@email.com', senha: 'senhaSegura123' }, true);
+  token = novo.data.token;
+  assert.equal((await request('/vacinas')).status, 200);
+});
+
+test('Swagger documenta o esquema Bearer, as rotas de usuário e o 401 em todas as rotas protegidas', async () => {
+  const doc = (await request('/docs.json', 'GET', undefined, true)).data;
+  assert.deepEqual(doc.components.securitySchemes.bearerAuth, { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' });
+  const publicas = new Set(['/', '/sobre', '/saudacao/{nome}', '/calculo/soma/{num1}/{num2}', 'post /usuarios', 'post /usuarios/login']);
+  let protegidas = 0;
+  for (const [caminho, metodos] of Object.entries<Record<string, { security?: unknown; responses: Record<string, unknown> }>>(doc.paths)) {
+    for (const [metodo, rota] of Object.entries(metodos)) {
+      if (publicas.has(caminho) || publicas.has(`${metodo} ${caminho}`)) {
+        assert.equal(rota.security, undefined, `${metodo} ${caminho}`);
+        continue;
+      }
+      protegidas++;
+      assert.deepEqual(rota.security, [{ bearerAuth: [] }], `${metodo} ${caminho}`);
+      assert.ok('401' in rota.responses, `${metodo} ${caminho}`);
+    }
+  }
+  assert.equal(protegidas, 36);
+  for (const nome of ['CreateUsuarioInput', 'LoginInput', 'Usuario', 'TokenResponse']) assert.ok(doc.components.schemas[nome], nome);
+  assert.equal(doc.components.schemas.Usuario.properties.senha, undefined);
 });

@@ -1,6 +1,6 @@
 # MatchAdotivo
 
-Sistema único de adoção que evolui cumulativamente com os laboratórios solicitados. O projeto reúne as rotas Express, o processamento de adoções com Promises, a persistência com TypeScript, Prisma ORM 8 e PostgreSQL a validação de entrada com Zod e a documentação OpenAPI/Swagger gerada dos mesmos schemas. As seis entidades são Instituição, Animal, Vacina, Animal_Vacina, Adotante e Match.
+Sistema único de adoção que evolui cumulativamente com os laboratórios solicitados. O projeto reúne as rotas Express, o processamento de adoções com Promises, a persistência com TypeScript, Prisma ORM 8 e PostgreSQL, a validação de entrada com Zod, a documentação OpenAPI/Swagger gerada dos mesmos schemas e a autenticação com JWT. As seis entidades do domínio são Instituição, Animal, Vacina, Animal_Vacina, Adotante e Match; o Usuário existe apenas para autenticar quem acessa a API.
 
 A orientação permanente está em [AGENTS.md](AGENTS.md). Novos laboratórios devem ser integrados a esta aplicação somente quando solicitados.
 
@@ -54,11 +54,16 @@ Os dados são persistentes. Um banco novo começa vazio; use [requisicoes.http](
 | Método | Caminho | Finalidade |
 | --- | --- | --- |
 | GET | `/` | Boas-vindas |
+| POST | `/usuarios` | Cadastrar usuário (pública) |
+| POST | `/usuarios/login` | Login: devolve o token JWT (pública) |
+| POST | `/usuarios/logout` | Invalidar o token (protegida) |
+| GET | `/usuarios` | Listar usuários (protegida) |
 | GET | `/docs` | Interface do Swagger para consultar e testar as rotas |
 | GET | `/docs.json` | Documento OpenAPI 3.0 em JSON (importável no Postman/Insomnia) |
 | GET | `/sobre` | Descrição do sistema e das entidades |
 | GET | `/saudacao/:nome` | Saudação personalizada |
 | GET | `/calculo/soma/:num1/:num2` | Somar dois números válidos |
+| GET | `/matches/hoje` | Pedidos feitos hoje (horário de Brasília) |
 | GET | `/animais/tipo/:tipo` | Filtrar animais por tipo, sem diferenciar maiúsculas e minúsculas |
 | GET | `/animais/:id/vacinas` | Consultar aplicações e detalhes das vacinas |
 | PATCH | `/matches/:id/status` | Alterar o status de uma solicitação |
@@ -84,6 +89,7 @@ Listagens retornam arrays, seguindo a API persistente já implementada. Consulta
 | 201 | Cadastro; `Location` aponta para o registro |
 | 204 | Exclusão, sem corpo |
 | 400 | Entrada, JSON, parâmetro, data ou atualização inválida (ver formato abaixo) |
+| 401 | Token ausente, inválido, expirado ou invalidado pelo logout; credenciais inválidas no login |
 | 404 | Rota ou registro inexistente |
 | 409 | Duplicidade, adoção indisponível ou exclusão impedida por vínculos |
 | 413 | Corpo maior que 100 KB |
@@ -110,6 +116,61 @@ Cada módulo tem um schema Zod em `<modulo>.schema.ts` (`createXSchema` e `updat
 - **Demais erros** usam `{ "error": "Descrição" }`: id inválido, JSON malformado, registro inexistente (404), duplicidade e vínculos (409). Todos passam pelo tratador central de `src/shared/erros.ts`.
 
 O campo `message` dos antigos arrays em memória foi substituído pelo formato de listagem em arrays adotado na API com Prisma; não existe uma segunda API em memória.
+
+## Camada de repositories
+
+O acesso ao banco fica isolado em um `<modulo>.repo.ts` por entidade (`instituicaoRepository`, `animalRepository`, `vacinaRepository`, `animalVacinaRepository`, `adotanteRepository`, `matchRepository`). O acesso ao banco só acontece nos repositories: nenhum outro arquivo usa `db.orm` nem conhece códigos SQL.
+
+- Cada repository é uma função que recebe o `db` (injetado, como no restante da API, para que os testes usem o banco `_test`) e, opcionalmente, uma transação: `matchRepository(db, tx)`. Assim os mesmos métodos servem às rotas e aos fluxos transacionais de match e adoção (`emTransacao` em `src/shared/repository.ts`).
+- Métodos padrão: `findAll`, `findById` (retorna `null` se não existir), `create`, `update` e `delete` (retornam `null` se o registro não existe). Buscas de regra de negócio têm nome próprio: `animalRepository.findByTipo`, `animalVacinaRepository.findByAnimalComVacina`, `matchRepository.findAprovadoByAnimal`, `animalRepository.bloquear` (linha do animal bloqueada na transação), `adotanteRepository.findByCpf` e `matchRepository.findPedidosHoje`.
+- As violações de restrição do PostgreSQL são traduzidas nos repositories para erros da aplicação (`RegistroDuplicadoError`, `ReferenciaInvalidaError`, `DadosInvalidosError`), que o tratador de erros converte nas mesmas respostas 409 e 400 de antes. As regras de negócio (RN03/RN04) permanecem em `match.service.ts`.
+- `findPedidosHoje` calcula "hoje" no fuso `America/Sao_Paulo` e converte para `Temporal.Instant`, porque o banco guarda `data_pedido` em UTC.
+- `test/arquitetura.test.ts` impede que código fora dos repositories acesse o Prisma.
+
+A API continua com as mesmas rotas, validações, respostas HTTP e documentação; a refatoração muda a organização, não o comportamento.
+
+## Camada de services
+
+O fluxo completo é `rota → validate → controller → service → repository → Prisma → banco`.
+
+- **Controller** (`<modulo>.controller.ts`): lê `req` (já validado), chama o service e monta a resposta HTTP. Não importa repositories nem aplica regras e não tem `try/catch`: os erros seguem para o tratador de erros (Express 5).
+- **Service** (`<modulo>.service.ts`, uma função `xService(db)` por entidade): concentra as regras de negócio, não conhece o HTTP e lança erros da aplicação. `adocao.service.ts` (fluxo com Promises) e o comando `adocao` reutilizam os mesmos services.
+- **Repository**: só acesso ao banco, como descrito acima.
+- **Erros da aplicação** (`src/shared/errors.ts`): `AppError` (carrega o `statusCode`), `NotFoundError` (404), `ConflictError` (409) e `BadRequestError` (400). O tratador de erros transforma qualquer `AppError` em `{ "error": "..." }` com o status certo; os erros que os repositories traduzem do banco também são `AppError`.
+
+Regras nos services:
+
+| Service | Regras |
+| --- | --- |
+| Instituição | Precisa existir (404). CNPJ não pode se repetir: `CNPJ já cadastrado` no POST e `CNPJ já utilizado por outra instituição` no PUT; manter o próprio CNPJ é permitido (409). |
+| Adotante | Precisa existir (404). CPF não pode se repetir (`CPF já cadastrado` / `CPF já utilizado por outro adotante`; manter o próprio é permitido). A coerência entre `possui_animais` e `quantidade_animais` (RN06) vale para os dados combinados na atualização parcial. |
+| Animal | RN01: a instituição informada precisa existir (404). Histórico de vacinação (RN05) só de animal existente. |
+| Animal_Vacina | O animal e a vacina informados precisam existir (404); doses repetidas são permitidas. |
+| Vacina | Precisa existir (404). |
+| Match | RN03/RN04 em transação com o animal bloqueado: adotante e animal existentes, um único `APROVADO` por animal (409). |
+
+Exclusões de registros com vínculos continuam sendo barradas pelo banco (`onDelete: Restrict`, 409). Cadastros simultâneos com o mesmo CNPJ/CPF passam pela verificação do service ao mesmo tempo; o índice único do banco barra os demais e o repository traduz o erro em 409, então o resultado é um 201 e os outros 409, nunca 500.
+
+Rota nova, que usa a busca de pedidos de hoje (horário de Brasília) do repository: `GET /matches/hoje`, registrada antes de `/:id` para não ser lida como id.
+
+Respostas e códigos HTTP não mudaram, com uma exceção deliberada de texto: as mensagens de CNPJ/CPF duplicado ficaram específicas (antes: `CPF/CNPJ já cadastrado ou animal com outra adoção aprovada.`); a mensagem genérica continua apenas como rede de segurança do banco em corridas.
+
+## Autenticação com JWT
+
+As rotas do sistema (`/instituicoes`, `/animais`, `/vacinas`, `/animais-vacinas`, `/adotantes`, `/matches` e suas subrotas) exigem login. Públicas: as rotas básicas (`/`, `/sobre`, saudação e soma), `/docs`, `POST /usuarios` e `POST /usuarios/login`.
+
+1. `POST /usuarios` cadastra um usuário (`nome`, `email`, `senha`). A senha tem 8 a 72 bytes, é gravada com **bcrypt** (custo 10) e nunca é devolvida; o e-mail é guardado em minúsculas e é único (409).
+2. `POST /usuarios/login` devolve `{ "token": "..." }`, um JWT (HS256) com o id do usuário, válido por **1 hora**. E-mail inexistente e senha errada respondem igualmente `401 Credenciais inválidas`.
+3. Envie o token em toda requisição protegida: `Authorization: Bearer <token>`. No Swagger, use o botão **Authorize** e cole somente o token.
+4. `POST /usuarios/logout` (protegida) invalida o token. `GET /usuarios` (protegida) lista os usuários, sem as senhas.
+
+Sempre `401`, com `{ "error": "..." }`: `Token não informado` (cabeçalho ausente ou fora do formato `Bearer <token>`), `Token inválido ou expirado` (assinatura inválida, token alterado ou expirado) e `Token inválido` (token já invalidado pelo logout).
+
+- **Segredo:** defina `JWT_SECRET` no `.env` (o servidor não inicia sem ele). O `.env.example` traz apenas um placeholder; gere um valor para cada ambiente com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. O `.env` não é versionado.
+- **Blacklist em memória:** os tokens invalidados pelo logout ficam na memória do servidor e são perdidos a cada reinício (inclusive com `npm run dev`): um token que fez logout volta a valer até expirar. Persistir a lista (tabela ou Redis) e papéis `user`/`admin` com 403 são os desafios opcionais do laboratório e **não** foram implementados.
+- Cada token recebe um `jti` único, para que um novo login logo após o logout não gere um token idêntico ao invalidado.
+- **Migração `add_usuario`:** cria apenas a tabela `usuarios` (`id_usuario`, `nome`, `email` único, `senha`, `created_at`), sem alterar dados existentes. Aplique com `npm run db:migrate` (e, para o banco de testes, com `DATABASE_URL` apontando para ele, como na seção de testes).
+- Arquivos: `src/config/jwt.ts` (assinatura, verificação e blacklist), `src/shared/autenticar.ts` (middleware), `src/modules/usuario/` (schema, repository, service, controller, rotas e OpenAPI). O `401` vem de `UnauthorizedError` em `src/shared/errors.ts`.
 
 ## Documentação com Swagger (OpenAPI)
 
@@ -171,7 +232,7 @@ O histórico foi preservado integralmente: baseline das seis entidades, adição
 
 ## Testes
 
-Os testes unitários verificam os tempos de 2, 3 e 4 segundos com timers simulados, a ordem e a interrupção das etapas, sem PostgreSQL. Os testes de validação (`test/validacao.test.ts`, sem banco) cobrem os schemas Zod: mensagens, conversões, idade mínima e atualização parcial. Os testes de integração também conferem `/docs` e `/docs.json` e a validação do `:id`. Eles exercitam CRUD, rotas básicas, persistência, validações, FKs, aprovação concorrente e o fluxo de Promises no banco real.
+Os testes unitários verificam os tempos de 2, 3 e 4 segundos com timers simulados, a ordem e a interrupção das etapas, sem PostgreSQL. Os testes de validação (`test/validacao.test.ts`, sem banco) cobrem os schemas Zod: mensagens, conversões, idade mínima e atualização parcial. Os testes de integração fazem login a cada cenário e também conferem a autenticação, `/docs` e `/docs.json` e a validação do `:id`. Eles exercitam CRUD, rotas básicas, persistência, validações, FKs, aprovação concorrente e o fluxo de Promises no banco real.
 
 Para executar toda a suíte com o banco de testes do Compose:
 
@@ -181,7 +242,7 @@ DATABASE_URL=postgresql://postgres:match_local@localhost:5434/match_adotivo_test
 npm test
 ```
 
-`TEST_DATABASE_URL` deve apontar para esse banco. Os testes limpam as seis tabelas antes de cada cenário; a variável é obrigatória e o nome do banco precisa terminar em `_test`. Não use um banco com dados que deseja preservar.
+`TEST_DATABASE_URL` deve apontar para esse banco, e `JWT_SECRET` precisa estar no `.env`. Os testes limpam as sete tabelas antes de cada cenário; a variável é obrigatória e o nome do banco precisa terminar em `_test`. Não use um banco com dados que deseja preservar.
 
 ## Organização
 
@@ -214,6 +275,7 @@ MatchAdotivo/
     api.test.ts
     adocao.test.ts
     validacao.test.ts
+    arquitetura.test.ts
 ```
 
 As ferramentas são iniciadas por `node`. `.npmrc` desabilita links simbólicos e scripts de instalação para permitir a instalação em FAT32. O launcher prepara uma cópia temporária do esbuild quando o volume não permite executar o binário e a remove ao encerrar. Start e testes usam o loader do tsx; somente o modo watch usa seu CLI.
@@ -226,6 +288,9 @@ As ferramentas são iniciadas por `node`. `.npmrc` desabilita links simbólicos 
 | Laboratório II: Promises sequenciais e erros | `src/modules/match/adocao.fluxo.ts`, `adocao.service.ts` e `src/cli/adocao.ts` |
 | Laboratório III: TypeScript, Prisma, PostgreSQL e CRUD | Configuração na raiz, `src/prisma/`, módulos e `migrations/` |
 | Laboratório IV: Zod, DTOs, erros padronizados e migração | `src/shared/schemas.ts`, `validate.ts`, `erros.ts`, `*.schema.ts` e `*.types.ts` dos módulos, `migrations/` |
+| Laboratório VIII: Autenticação com JWT e bcrypt | `src/config/jwt.ts`, `src/shared/autenticar.ts`, `src/modules/usuario/`, migração `add_usuario` |
+| Laboratório VII: Services e erros da aplicação | `<modulo>.service.ts` em cada módulo, `src/shared/errors.ts` e `GET /matches/hoje` |
+| Laboratório VI: Repository | `<modulo>.repo.ts` em cada módulo e `src/shared/repository.ts` |
 | Laboratório V: Swagger/OpenAPI, validação do `:id` e erros globais | `src/shared/openapi*.ts`, `error.schema.ts`, `*.openapi.ts` dos módulos, `/docs` em `src/app.ts` |
 
 Não há aplicações ou pacotes por laboratório. Somente os laboratórios explicitamente solicitados são implementados.

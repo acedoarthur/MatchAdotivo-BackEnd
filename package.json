@@ -22,21 +22,25 @@
     "test": "node scripts/tsx.mjs --test test/*.test.ts",
     "adocao": "node scripts/tsx.mjs src/cli/adocao.ts",
     "adocao:erro": "node scripts/tsx.mjs src/cli/adocao.ts --erro",
-    "test:unit": "node scripts/tsx.mjs --test test/adocao.test.ts test/validacao.test.ts",
+    "test:unit": "node scripts/tsx.mjs --test test/adocao.test.ts test/validacao.test.ts test/arquitetura.test.ts",
     "test:integration": "node scripts/tsx.mjs --test test/api.test.ts",
     "db:verify": "node node_modules/prisma/dist/prisma.js db verify"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^9.1.0",
     "@prisma/orm-postgres": "8.0.0-rc.13",
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.2.3",
     "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
     "swagger-ui-express": "^5.0.1",
     "temporal-polyfill": "0.3.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
     "@types/swagger-ui-express": "^4.1.8",
     "prisma": "8.0.0-rc.19",

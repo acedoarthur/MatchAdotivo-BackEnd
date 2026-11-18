@@ -1,26 +1,30 @@
 import type { Database } from '../../prisma/db';
 import type { CrudController } from '../../shared/crud.routes';
-import { lerId, encontrado } from '../../shared/validacao';
+import { lerId } from '../../shared/validacao';
+import { instituicaoService } from './instituicao.service';
 import type { CreateInstituicaoDTO, UpdateInstituicaoDTO } from './instituicao.types';
 
-// Os corpos de POST e PUT já chegam validados e convertidos pelo middleware validate.
+/*
+Controller: lê a requisição, chama o service e monta a resposta HTTP. Não há try/catch:
+os erros lançados pelo service (404, 409...) seguem para o tratador de erros (Express 5).
+O corpo e o :id já chegam validados e convertidos pelo middleware validate.
+*/
 export function instituicaoController(db: Database): CrudController {
-  const model = db.orm.public.Instituicao;
+  const service = instituicaoService(db);
   return {
-    getAll: async (req, res) => { res.json(await model.orderBy((i) => i.id_instituicao.asc()).all()); },
-    getById: async (req, res) => { res.json(encontrado(await model.where({ id_instituicao: lerId(req) }).first())); },
+    getAll: async (req, res) => { res.json(await service.getAll()); },
+    getById: async (req, res) => { res.json(await service.findById(lerId(req))); },
     create: async (req, res) => {
       const data: CreateInstituicaoDTO = req.body;
-      const novo = await model.create(data);
+      const novo = await service.create(data);
       res.location(`/instituicoes/${novo.id_instituicao}`).status(201).json(novo);
     },
     update: async (req, res) => {
-      const id_instituicao = lerId(req);
       const data: UpdateInstituicaoDTO = req.body;
-      res.json(encontrado(await model.where({ id_instituicao }).update(data)));
+      res.json(await service.update(lerId(req), data));
     },
     remove: async (req, res) => {
-      encontrado(await model.where({ id_instituicao: lerId(req) }).delete());
+      await service.delete(lerId(req));
       res.status(204).send();
     },
   };

@@ -34,7 +34,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'4fc5cd4bd43e7f8dd4f3b3a24a7e023109eb40f3e9591856c1be8f48a450843e'>;
+  StorageHashBase<'0f08593dfd967a13f9fe4fd90ed8c8533294b76b20256bb2d92d1ad7c7be03eb'>;
 export type ExecutionHash = ExecutionHashBase<string>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
@@ -290,6 +290,13 @@ export type FieldOutputTypes = {
       readonly id_match: CodecTypes['pg/int4@1']['output'];
       readonly status: Varchar<20>;
     };
+    readonly Usuario: {
+      readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
+      readonly email: Varchar<255>;
+      readonly id_usuario: CodecTypes['pg/int4@1']['output'];
+      readonly nome: Varchar<200>;
+      readonly senha: Varchar<100>;
+    };
     readonly Vacina: {
       readonly id_vacina: CodecTypes['pg/int4@1']['output'];
       readonly nome: Varchar<150>;
@@ -338,6 +345,13 @@ export type FieldInputTypes = {
       readonly id_animal: CodecTypes['pg/int4@1']['input'];
       readonly id_match: CodecTypes['pg/int4@1']['input'];
       readonly status: CodecTypes['sql/varchar@1']['input'];
+    };
+    readonly Usuario: {
+      readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['input'];
+      readonly email: CodecTypes['sql/varchar@1']['input'];
+      readonly id_usuario: CodecTypes['pg/int4@1']['input'];
+      readonly nome: CodecTypes['sql/varchar@1']['input'];
+      readonly senha: CodecTypes['sql/varchar@1']['input'];
     };
     readonly Vacina: {
       readonly id_vacina: CodecTypes['pg/int4@1']['input'];
@@ -388,6 +402,13 @@ export type StorageColumnTypes = {
       readonly id_match: CodecTypes['pg/int4@1']['output'];
       readonly status: Varchar<20>;
     };
+    readonly usuarios: {
+      readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
+      readonly email: Varchar<255>;
+      readonly id_usuario: CodecTypes['pg/int4@1']['output'];
+      readonly nome: Varchar<200>;
+      readonly senha: Varchar<100>;
+    };
     readonly vacinas: {
       readonly id_vacina: CodecTypes['pg/int4@1']['output'];
       readonly nome: Varchar<150>;
@@ -436,6 +457,13 @@ export type StorageColumnInputTypes = {
       readonly id_animal: CodecTypes['pg/int4@1']['input'];
       readonly id_match: CodecTypes['pg/int4@1']['input'];
       readonly status: CodecTypes['sql/varchar@1']['input'];
+    };
+    readonly usuarios: {
+      readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['input'];
+      readonly email: CodecTypes['sql/varchar@1']['input'];
+      readonly id_usuario: CodecTypes['pg/int4@1']['input'];
+      readonly nome: CodecTypes['sql/varchar@1']['input'];
+      readonly senha: CodecTypes['sql/varchar@1']['input'];
     };
     readonly vacinas: {
       readonly id_vacina: CodecTypes['pg/int4@1']['input'];
@@ -500,6 +528,14 @@ export namespace Models {
     animal: public_Animal;
     readonly [RelationKeys]?: 'adotante' | 'animal';
   };
+  export type public_Usuario = {
+    created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
+    email: Varchar<255>;
+    id_usuario: CodecTypes['pg/int4@1']['output'];
+    nome: Varchar<200>;
+    senha: Varchar<100>;
+    readonly [RelationKeys]?: never;
+  };
   export type public_Vacina = {
     id_vacina: CodecTypes['pg/int4@1']['output'];
     nome: Varchar<150>;
@@ -515,6 +551,7 @@ export declare const models: {
     AnimalVacina: Models.public_AnimalVacina;
     Instituicao: Models.public_Instituicao;
     Match: Models.public_Match;
+    Usuario: Models.public_Usuario;
     Vacina: Models.public_Vacina;
   };
 };
@@ -867,6 +904,47 @@ type ContractBase = Omit<
                 },
               ];
             };
+            readonly usuarios: {
+              columns: {
+                readonly created_at: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-temporal@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                };
+                readonly email: {
+                  readonly nativeType: 'character varying';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly nullable: false;
+                  readonly typeParams: { readonly length: 255 };
+                };
+                readonly id_usuario: {
+                  readonly nativeType: 'int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'function';
+                    readonly expression: 'autoincrement()';
+                  };
+                };
+                readonly nome: {
+                  readonly nativeType: 'character varying';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly nullable: false;
+                  readonly typeParams: { readonly length: 200 };
+                };
+                readonly senha: {
+                  readonly nativeType: 'character varying';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly nullable: false;
+                  readonly typeParams: { readonly length: 100 };
+                };
+              };
+              primaryKey: { readonly columns: readonly ['id_usuario'] };
+              uniques: readonly [{ readonly columns: readonly ['email'] }];
+              indexes: readonly [];
+              foreignKeys: readonly [];
+            };
             readonly vacinas: {
               columns: {
                 readonly id_vacina: {
@@ -912,6 +990,7 @@ type ContractBase = Omit<
       readonly model: 'Instituicao';
     };
     readonly matches: { readonly namespace: 'public' & NamespaceId; readonly model: 'Match' };
+    readonly usuarios: { readonly namespace: 'public' & NamespaceId; readonly model: 'Usuario' };
     readonly vacinas: { readonly namespace: 'public' & NamespaceId; readonly model: 'Vacina' };
   };
   readonly domain: {
@@ -1292,6 +1371,57 @@ type ContractBase = Omit<
                 readonly id_animal: { readonly column: 'id_animal' };
                 readonly id_match: { readonly column: 'id_match' };
                 readonly status: { readonly column: 'status' };
+              };
+            };
+          };
+          readonly Usuario: {
+            readonly fields: {
+              readonly created_at: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-temporal@1';
+                };
+              };
+              readonly email: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly typeParams: { readonly length: 255 };
+                };
+              };
+              readonly id_usuario: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly nome: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly typeParams: { readonly length: 200 };
+                };
+              };
+              readonly senha: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly typeParams: { readonly length: 100 };
+                };
+              };
+            };
+            readonly relations: Record<string, never>;
+            readonly storage: {
+              readonly table: 'usuarios';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly created_at: { readonly column: 'created_at' };
+                readonly email: { readonly column: 'email' };
+                readonly id_usuario: { readonly column: 'id_usuario' };
+                readonly nome: { readonly column: 'nome' };
+                readonly senha: { readonly column: 'senha' };
               };
             };
           };

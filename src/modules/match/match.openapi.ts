@@ -1,15 +1,21 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
-import { erro, erro400Corpo, erro413, erro500, json, registrarCrud } from '../../shared/openapi.helpers';
+import { protegida, erro, erro400Corpo, erro413, erro500, json, registrarCrud } from '../../shared/openapi.helpers';
 import { idParamsSchema } from '../../shared/schemas';
+import { z } from 'zod';
 import { createMatchSchema, matchResponseSchema, updateMatchSchema } from './match.schema';
 
 export function registerMatchPaths(registry: OpenAPIRegistry) {
+  protegida(registry, {
+    method: 'get', path: '/matches/hoje', tags: ['Matches'], summary: 'Listar pedidos feitos hoje',
+    description: 'Retorna os matches cujo pedido foi feito na data de hoje (horário de Brasília)',
+    responses: { 200: { description: 'Lista de matches', content: json(z.array(matchResponseSchema)) }, 500: erro500 },
+  });
   registrarCrud(registry, {
     tag: 'Matches', caminho: '/matches', nome: 'match',
     createSchema: createMatchSchema, updateSchema: updateMatchSchema, responseSchema: matchResponseSchema,
     escrita: { 404: 'Adotante, animal ou match inexistente', 409: 'O animal já possui uma adoção aprovada' },
   });
-  registry.registerPath({
+  protegida(registry, {
     method: 'patch', path: '/matches/{id}/status', tags: ['Matches'], summary: 'Alterar o status do match',
     description: 'Equivale ao PUT /matches/{id}. Só um match por animal pode estar APROVADO.',
     request: { params: idParamsSchema, body: { description: 'Novo status', required: true, content: json(updateMatchSchema) } },
