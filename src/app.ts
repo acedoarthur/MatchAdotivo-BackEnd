@@ -8,8 +8,8 @@ import animalVacinaRoutes from './modules/animal-vacina/animal-vacina.routes';
 import adotanteRoutes from './modules/adotante/adotante.routes';
 import matchRoutes from './modules/match/match.routes';
 import usuarioRoutes from './modules/usuario/usuario.routes';
-import { autenticar } from './shared/autenticar';
-import { tratarErros } from './shared/erros';
+import { autenticar } from './middlewares/autenticar';
+import { tratarErros } from './middlewares/errorHandler';
 import { rotasBasicas } from './shared/basicas.routes';
 import { gerarDocumentoOpenApi } from './shared/openapi';
 

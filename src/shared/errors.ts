@@ -1,7 +1,7 @@
 /*
 Erros da aplicação: cada um já sabe qual status HTTP representa.
 Os services (e os repositories, ao traduzir erros do banco) lançam;
-o tratador de erros (shared/erros.ts) transforma em resposta JSON.
+o tratador de erros (middlewares/errorHandler.ts) transforma em resposta JSON.
 */
 export class AppError extends Error {
   constructor(message: string, public readonly statusCode: number) {

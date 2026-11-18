@@ -1,6 +1,6 @@
 import type { ErrorRequestHandler } from 'express';
 import { ZodError } from 'zod';
-import { AppError } from './errors';
+import { AppError } from '../shared/errors';
 
 export const tratarErros: ErrorRequestHandler = (erro: unknown, req, res, next) => {
   // Erros da aplicação (lançados pelos services e repositories): já trazem o status.

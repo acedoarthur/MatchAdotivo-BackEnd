@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Database } from '../../prisma/db';
-import { autenticar } from '../../shared/autenticar';
-import { validate } from '../../shared/validate';
+import { autenticar } from '../../middlewares/autenticar';
+import { validate } from '../../middlewares/validate';
 import { usuarioController } from './usuario.controller';
 import { createUsuarioSchema, loginSchema } from './usuario.schema';
 

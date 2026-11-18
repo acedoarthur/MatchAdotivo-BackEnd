@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { verifyToken } from '../config/jwt';
-import { UnauthorizedError } from './errors';
+import { UnauthorizedError } from '../shared/errors';
 
 /*
 Exige o cabeçalho Authorization: Bearer <token>. Se o token for válido, guarda o id do

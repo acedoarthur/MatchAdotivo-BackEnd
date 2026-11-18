@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Database } from '../../prisma/db';
 import { crudRoutes } from '../../shared/crud.routes';
 import { idParamsSchema } from '../../shared/schemas';
-import { validate } from '../../shared/validate';
+import { validate } from '../../middlewares/validate';
 import { animalController } from './animal.controller';
 import { createAnimalSchema, updateAnimalSchema } from './animal.schema';
 

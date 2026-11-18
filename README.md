@@ -97,7 +97,7 @@ Listagens retornam arrays, seguindo a API persistente já implementada. Consulta
 
 ## Validação e tratamento de erros
 
-Cada módulo tem um schema Zod em `<modulo>.schema.ts` (`createXSchema` e `updateXSchema`) e os DTOs em `<modulo>.types.ts`, inferidos do schema com `z.infer`. O middleware `src/shared/validate.ts` valida o corpo (`POST`, `PUT` e `PATCH /matches/:id/status`) e o parâmetro `:id` da URL (`validate(idParamsSchema, 'params')`, em todas as rotas com `:id`) e os substitui pelos dados já convertidos, com `Object.defineProperty` por causa do `req.query` somente leitura do Express 5; um `:id` inválido (`abc`, `0`, `1.5`, acima de 2147483647...) responde 400 com `campo: "id"`; os controllers recebem o DTO pronto e não repetem validações. Os blocos de construção compartilhados (texto com limite `VarChar`, CPF/CNPJ, listas fixas, datas, ids) ficam em `src/shared/schemas.ts`, com as mensagens do Zod em português.
+Cada módulo tem um schema Zod em `<modulo>.schema.ts` (`createXSchema` e `updateXSchema`) e os DTOs em `<modulo>.types.ts`, inferidos do schema com `z.infer`. O middleware `src/middlewares/validate.ts` valida o corpo (`POST`, `PUT` e `PATCH /matches/:id/status`) e o parâmetro `:id` da URL (`validate(idParamsSchema, 'params')`, em todas as rotas com `:id`) e os substitui pelos dados já convertidos, com `Object.defineProperty` por causa do `req.query` somente leitura do Express 5; um `:id` inválido (`abc`, `0`, `1.5`, acima de 2147483647...) responde 400 com `campo: "id"`; os controllers recebem o DTO pronto e não repetem validações. Os blocos de construção compartilhados (texto com limite `VarChar`, CPF/CNPJ, listas fixas, datas, ids) ficam em `src/shared/schemas.ts`, com as mensagens do Zod em português.
 
 - **Cadastro** (`POST`): campos desconhecidos, como ids gerados pelo banco, são descartados.
 - **Atualização** (`PUT`): todos os campos são opcionais, mas ao menos um deve ser enviado e campos fora da lista do módulo são rejeitados. No adotante, a coerência entre `possui_animais` e `quantidade_animais` é revalidada combinando o que foi enviado com o que já está gravado.
@@ -113,7 +113,7 @@ Cada módulo tem um schema Zod em `<modulo>.schema.ts` (`createXSchema` e `updat
 }
 ```
 
-- **Demais erros** usam `{ "error": "Descrição" }`: id inválido, JSON malformado, registro inexistente (404), duplicidade e vínculos (409). Todos passam pelo tratador central de `src/shared/erros.ts`.
+- **Demais erros** usam `{ "error": "Descrição" }`: id inválido, JSON malformado, registro inexistente (404), duplicidade e vínculos (409). Todos passam pelo tratador central de `src/middlewares/errorHandler.ts`.
 
 O campo `message` dos antigos arrays em memória foi substituído pelo formato de listagem em arrays adotado na API com Prisma; não existe uma segunda API em memória.
 
@@ -170,7 +170,7 @@ Sempre `401`, com `{ "error": "..." }`: `Token não informado` (cabeçalho ausen
 - **Blacklist em memória:** os tokens invalidados pelo logout ficam na memória do servidor e são perdidos a cada reinício (inclusive com `npm run dev`): um token que fez logout volta a valer até expirar. Persistir a lista (tabela ou Redis) e papéis `user`/`admin` com 403 são os desafios opcionais do laboratório e **não** foram implementados.
 - Cada token recebe um `jti` único, para que um novo login logo após o logout não gere um token idêntico ao invalidado.
 - **Migração `add_usuario`:** cria apenas a tabela `usuarios` (`id_usuario`, `nome`, `email` único, `senha`, `created_at`), sem alterar dados existentes. Aplique com `npm run db:migrate` (e, para o banco de testes, com `DATABASE_URL` apontando para ele, como na seção de testes).
-- Arquivos: `src/config/jwt.ts` (assinatura, verificação e blacklist), `src/shared/autenticar.ts` (middleware), `src/modules/usuario/` (schema, repository, service, controller, rotas e OpenAPI). O `401` vem de `UnauthorizedError` em `src/shared/errors.ts`.
+- Arquivos: `src/config/jwt.ts` (assinatura, verificação e blacklist), `src/middlewares/autenticar.ts` (middleware), `src/modules/usuario/` (schema, repository, service, controller, rotas e OpenAPI). O `401` vem de `UnauthorizedError` em `src/shared/errors.ts`.
 
 ## Documentação com Swagger (OpenAPI)
 
@@ -288,7 +288,7 @@ As ferramentas são iniciadas por `node`. `.npmrc` desabilita links simbólicos 
 | Laboratório II: Promises sequenciais e erros | `src/modules/match/adocao.fluxo.ts`, `adocao.service.ts` e `src/cli/adocao.ts` |
 | Laboratório III: TypeScript, Prisma, PostgreSQL e CRUD | Configuração na raiz, `src/prisma/`, módulos e `migrations/` |
 | Laboratório IV: Zod, DTOs, erros padronizados e migração | `src/shared/schemas.ts`, `validate.ts`, `erros.ts`, `*.schema.ts` e `*.types.ts` dos módulos, `migrations/` |
-| Laboratório VIII: Autenticação com JWT e bcrypt | `src/config/jwt.ts`, `src/shared/autenticar.ts`, `src/modules/usuario/`, migração `add_usuario` |
+| Laboratório VIII: Autenticação com JWT e bcrypt | `src/config/jwt.ts`, `src/middlewares/autenticar.ts`, `src/modules/usuario/`, migração `add_usuario` |
 | Laboratório VII: Services e erros da aplicação | `<modulo>.service.ts` em cada módulo, `src/shared/errors.ts` e `GET /matches/hoje` |
 | Laboratório VI: Repository | `<modulo>.repo.ts` em cada módulo e `src/shared/repository.ts` |
 | Laboratório V: Swagger/OpenAPI, validação do `:id` e erros globais | `src/shared/openapi*.ts`, `error.schema.ts`, `*.openapi.ts` dos módulos, `/docs` em `src/app.ts` |

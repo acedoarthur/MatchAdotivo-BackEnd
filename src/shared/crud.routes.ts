@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import type { z } from 'zod';
-import { validate } from './validate';
+import { validate } from '../middlewares/validate';
 import { idParamsSchema } from './schemas';
 
 export interface CrudController {
