@@ -7,6 +7,7 @@ model Instituicao {
   endereco VarChar(255)
   foto VarChar(500)?
   animais Animal[]
+  usuario Usuario?
 
   @@map("instituicoes")
 }
@@ -57,6 +58,7 @@ model Adotante {
   quantidade_animais Int
   tipos_animais String?
   matches Match[]
+  usuario Usuario?
 
   @@check(expression: "quantidade_animais >= 0 AND ((possui_animais = false AND quantidade_animais = 0) OR (possui_animais = true AND quantidade_animais > 0))", name: "adotante_quantidade_coerente")
   @@check(expression: "tipo_residencia IN ('CASA', 'APARTAMENTO', 'CHÁCARA', 'OUTRO')", name: "adotante_residencia_valida")
@@ -83,6 +85,14 @@ model Usuario {
   email VarChar(255) @unique
   senha VarChar(100)
   created_at DateTime @default(now())
+  // Perfil da conta. ADOTANTE e INSTITUICAO apontam para o próprio cadastro; ADMIN não tem vínculo e só é
+  // atribuído pelo comando de servidor. Contas anteriores aos perfis ficam com perfil null (sem permissões).
+  perfil VarChar(20)?
+  id_adotante Int? @unique
+  id_instituicao Int? @unique
+  adotante Adotante? @relation(fields: [id_adotante], references: [id_adotante], onDelete: Restrict)
+  instituicao Instituicao? @relation(fields: [id_instituicao], references: [id_instituicao], onDelete: Restrict)
 
+  @@check(expression: "(perfil IS NULL AND id_adotante IS NULL AND id_instituicao IS NULL) OR (perfil = 'ADOTANTE' AND id_adotante IS NOT NULL AND id_instituicao IS NULL) OR (perfil = 'INSTITUICAO' AND id_instituicao IS NOT NULL AND id_adotante IS NULL) OR (perfil = 'ADMIN' AND id_adotante IS NULL AND id_instituicao IS NULL)", name: "usuario_perfil_coerente")
   @@map("usuarios")
 }

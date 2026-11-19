@@ -21,6 +21,8 @@ import { emTransacao, RegistroDuplicadoError, ReferenciaInvalidaError, DadosInva
 import jwt from 'jsonwebtoken';
 import { usuarioResponseSchema } from '../src/modules/usuario/usuario.schema';
 import { processarAdocao } from '../src/modules/match/adocao.service';
+import { usuarioService } from '../src/modules/usuario/usuario.service';
+import bcrypt from 'bcrypt';
 
 let db: Database;
 let server: Server;
@@ -48,14 +50,17 @@ after(async () => {
   if (db) await db.close();
 });
 
-// Token do usuário de teste, criado a cada cenário; as rotas do sistema exigem login.
+// Tokens criados a cada cenário. `token` é do administrador (padrão das requisições);
+// a instituição e o adotante têm contas reais, criadas pelo cadastro público.
 let token = '';
-const autorizacao = () => ({ Authorization: `Bearer ${token}` });
+let tokenInstituicao = '';
+let tokenAdotante = '';
+const autorizacao = (valor = token) => ({ Authorization: `Bearer ${valor}` });
 
-async function request(path: string, method = 'GET', body?: unknown, semToken = false) {
+async function request(path: string, method = 'GET', body?: unknown, semToken = false, comToken = token) {
   const response = await fetch(`${url}${path}`, {
     method,
-    headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(semToken ? {} : autorizacao()) },
+    headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(semToken ? {} : autorizacao(comToken)) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return {
@@ -63,6 +68,23 @@ async function request(path: string, method = 'GET', body?: unknown, semToken = 
     location: response.headers.get('location'),
     data: response.status === 204 ? null : response.headers.get('content-type')?.includes('application/json') ? await response.json() : await response.text(),
   };
+}
+
+// Requisições com o token de outra conta.
+const como = (valor: string) => (path: string, method = 'GET', body?: unknown) => request(path, method, body, false, valor);
+const SENHA = 'senhaSegura123';
+
+/** Cria uma conta pelo cadastro público e faz login com o perfil dela. */
+async function registrar(email: string, cadastro: Record<string, unknown>) {
+  const criada = await request('/usuarios', 'POST', { nome: 'Conta Teste', email, senha: SENHA, ...cadastro }, true);
+  assert.equal(criada.status, 201, JSON.stringify(criada.data));
+  const login = await request('/usuarios/login', 'POST', { email, senha: SENHA, perfil: cadastro.perfil }, true);
+  return { conta: criada.data, token: login.data.token as string };
+}
+
+/** Conta criada antes dos perfis: gravada direto no banco, sem vínculo. */
+async function contaAntiga(email: string) {
+  return db.orm.public.Usuario.create({ nome: varchar<200>('Conta Antiga'), email: varchar<255>(email), senha: varchar<100>(await bcrypt.hash(SENHA, 4)) });
 }
 
 // O Prisma 8 tipa VARCHAR(n) com o tamanho; no banco direto, a conversão é feita à mão.
@@ -75,15 +97,19 @@ const dadosAdotante = {
 
 beforeEach(async () => {
   // Apenas o banco dedicado e validado acima é limpo, nunca DATABASE_URL.
-  await db.runtime().execute(db.raw.sql`TRUNCATE matches, animais_vacinas, animais, vacinas, adotantes, instituicoes, usuarios RESTART IDENTITY CASCADE`.affectedCount().build());
-  const credenciais = { email: 'teste@email.com', senha: 'senhaSegura123' };
-  await request('/usuarios', 'POST', { nome: 'Usuário Teste', ...credenciais }, true);
-  token = (await request('/usuarios/login', 'POST', credenciais, true)).data.token;
-  instituicao = (await request('/instituicoes', 'POST', {
-    cnpj: '00.000.000/0000-01', razao_social: 'Abrigo Teste', endereco: 'Rua B, 20',
-  })).data.id_instituicao;
-  animal = (await request('/animais', 'POST', { tipo: 'cachorro', id_instituicao: instituicao })).data.id_animal;
-  adotante = (await request('/adotantes', 'POST', dadosAdotante)).data.id_adotante;
+  await db.runtime().execute(db.raw.sql`TRUNCATE matches, animais_vacinas, animais, vacinas, usuarios, adotantes, instituicoes RESTART IDENTITY CASCADE`.affectedCount().build());
+  // Administrador: conta existente promovida pelo mesmo service do comando npm run usuario:admin.
+  await contaAntiga('teste@email.com');
+  await usuarioService(db).tornarAdmin(varchar<255>('teste@email.com'));
+  token = (await request('/usuarios/login', 'POST', { email: 'teste@email.com', senha: SENHA, perfil: 'ADMIN' }, true)).data.token;
+  const inst = await registrar('instituicao@email.com', {
+    perfil: 'INSTITUICAO', instituicao: { cnpj: '00.000.000/0000-01', razao_social: 'Abrigo Teste', endereco: 'Rua B, 20' },
+  });
+  const adot = await registrar('adotante@email.com', { perfil: 'ADOTANTE', adotante: dadosAdotante });
+  [tokenInstituicao, instituicao] = [inst.token, inst.conta.id_instituicao];
+  [tokenAdotante, adotante] = [adot.token, adot.conta.id_adotante];
+  // A instituição cadastra o animal sem informar id_instituicao: vale a identidade.
+  animal = (await como(tokenInstituicao)('/animais', 'POST', { tipo: 'cachorro' })).data.id_animal;
   vacina = (await request('/vacinas', 'POST', { nome: 'Antirrábica' })).data.id_vacina;
 });
 
@@ -112,7 +138,8 @@ test('CPF/CNPJ normalizados são únicos na criação e atualização', async ()
 });
 
 test('animal exige instituição válida e datas são persistidas como DATE', async () => {
-  assert.equal((await request('/animais', 'POST', { tipo: 'gato' })).status, 400);
+  // O administrador precisa informar a instituição.
+  assert.deepEqual(await request('/animais', 'POST', { tipo: 'gato' }).then((r) => [r.status, r.data]), [400, { error: 'id_instituicao é obrigatório para o administrador.' }]);
   assert.equal((await request('/animais', 'POST', { tipo: 'gato', id_instituicao: 999 })).status, 404);
   assert.equal((await request('/animais', 'POST', { tipo: 'gato', id_instituicao: instituicao, data_nascimento: '2025-02-29' })).status, 400);
   const novo = await request('/animais', 'POST', { tipo: 'GATO', id_instituicao: instituicao, data_nascimento: '2024-02-29' });
@@ -158,7 +185,10 @@ test('atualização de adotante revalida a coerência dos dados combinados', asy
   assert.equal((await request(path, 'PUT', { possui_animais: false })).status, 400);
   assert.equal((await request(path)).data.quantidade_animais, 2);
   assert.equal((await request('/adotantes')).data.length, 1);
-  assert.equal((await request(path, 'DELETE')).status, 204);
+  // Vinculado a uma conta: a exclusão é barrada pelo banco; um cadastro avulso do administrador pode ser excluído.
+  assert.equal((await request(path, 'DELETE')).status, 409);
+  const avulso = await request('/adotantes', 'POST', { ...dadosAdotante, cpf: '00000000005' });
+  assert.equal((await request(avulso.location!, 'DELETE')).status, 204);
 });
 
 test('match nasce pendente, recebe status e impede novos pedidos após aprovação', async () => {
@@ -537,12 +567,16 @@ test('GET /matches/hoje lista os pedidos de hoje e não é confundido com um id'
   assert.equal((await request(novo.location!, 'DELETE')).status, 404);
 });
 
-const novoUsuario = { nome: 'Maria da Silva', email: 'maria@email.com', senha: 'senhaSegura123' };
+const novoUsuario = {
+  nome: 'Maria da Silva', email: 'maria@email.com', senha: 'senhaSegura123', perfil: 'INSTITUICAO',
+  instituicao: { cnpj: '00000000000077', razao_social: 'Abrigo Maria', endereco: 'Rua M' },
+};
 
 test('cadastro de usuário: senha criptografada com bcrypt, nunca devolvida, e-mail único sem diferenciar maiúsculas', async () => {
   const criado = await request('/usuarios', 'POST', { ...novoUsuario, email: ' Maria@Email.com ' }, true);
   assert.equal(criado.status, 201);
-  assert.deepEqual(Object.keys(criado.data).sort(), ['created_at', 'email', 'id_usuario', 'nome']);
+  assert.deepEqual(Object.keys(criado.data).sort(), ['created_at', 'email', 'id_adotante', 'id_instituicao', 'id_usuario', 'nome', 'perfil']);
+  assert.equal(criado.data.perfil, 'INSTITUICAO');
   assert.equal(criado.data.email, 'maria@email.com');
   usuarioResponseSchema.parse(criado.data);
   const gravado = await db.orm.public.Usuario.where({ id_usuario: criado.data.id_usuario }).first();
@@ -550,12 +584,12 @@ test('cadastro de usuário: senha criptografada com bcrypt, nunca devolvida, e-m
   assert.notEqual(gravado!.senha, novoUsuario.senha);
   const repetido = await request('/usuarios', 'POST', { ...novoUsuario, email: 'MARIA@email.com' }, true);
   assert.deepEqual([repetido.status, repetido.data], [409, { error: 'E-mail já cadastrado' }]);
-  const simultaneos = await Promise.all(Array.from({ length: 5 }, () => request('/usuarios', 'POST', { ...novoUsuario, email: 'corrida@email.com' }, true)));
+  const simultaneos = await Promise.all(Array.from({ length: 5 }, () => request('/usuarios', 'POST', { ...novoUsuario, email: 'corrida@email.com', instituicao: { ...novoUsuario.instituicao, cnpj: '00000000000078' } }, true)));
   assert.deepEqual(simultaneos.map((r) => r.status).sort(), [201, 409, 409, 409, 409]);
 });
 
 test('cadastro de usuário valida nome, e-mail e senha com o formato padrão de erros', async () => {
-  const invalido = await request('/usuarios', 'POST', { nome: 'Al', email: 'nao-e-email', senha: '123' }, true);
+  const invalido = await request('/usuarios', 'POST', { ...novoUsuario, nome: 'Al', email: 'nao-e-email', senha: '123' }, true);
   assert.equal(invalido.status, 400);
   assert.deepEqual(invalido.data.details.map((d: { campo: string }) => d.campo).sort(), ['email', 'nome', 'senha']);
   const mensagens = Object.fromEntries(invalido.data.details.map((d: { campo: string; mensagem: string }) => [d.campo, d.mensagem]));
@@ -569,13 +603,14 @@ test('cadastro de usuário valida nome, e-mail e senha com o formato padrão de 
 
 test('login devolve JWT de 1 hora com o id e responde igual para e-mail inexistente e senha errada', async () => {
   await request('/usuarios', 'POST', novoUsuario, true);
-  const ok = await request('/usuarios/login', 'POST', { email: 'MARIA@email.com', senha: novoUsuario.senha }, true);
+  const ok = await request('/usuarios/login', 'POST', { email: 'MARIA@email.com', senha: novoUsuario.senha, perfil: 'INSTITUICAO' }, true);
+  assert.equal(ok.data.perfil, 'INSTITUICAO');
   assert.equal(ok.status, 200);
   const payload = jwt.decode(ok.data.token) as { id: number; iat: number; exp: number };
   assert.equal(typeof payload.id, 'number');
   assert.equal(payload.exp - payload.iat, 3600);
-  const senhaErrada = await request('/usuarios/login', 'POST', { email: novoUsuario.email, senha: 'outraSenha123' }, true);
-  const naoExiste = await request('/usuarios/login', 'POST', { email: 'ninguem@email.com', senha: novoUsuario.senha }, true);
+  const senhaErrada = await request('/usuarios/login', 'POST', { email: novoUsuario.email, senha: 'outraSenha123', perfil: 'INSTITUICAO' }, true);
+  const naoExiste = await request('/usuarios/login', 'POST', { email: 'ninguem@email.com', senha: novoUsuario.senha, perfil: 'INSTITUICAO' }, true);
   assert.deepEqual([senhaErrada.status, senhaErrada.data], [401, { error: 'Credenciais inválidas' }]);
   assert.deepEqual([naoExiste.status, naoExiste.data], [401, { error: 'Credenciais inválidas' }]);
 });
@@ -613,11 +648,12 @@ test('rotas públicas continuam abertas: básicas, documentação, cadastro e lo
   assert.equal((await request('/nao-existe', 'GET', undefined, true)).status, 404);
 });
 
-test('GET /usuarios exige token e lista sem as senhas; logout invalida o token', async () => {
+test('GET /usuarios exige token de administrador e lista sem as senhas; logout invalida o token', async () => {
   assert.equal((await request('/usuarios', 'GET', undefined, true)).status, 401);
+  for (const outro of [tokenAdotante, tokenInstituicao]) assert.equal((await como(outro)('/usuarios')).status, 403);
   const lista = await request('/usuarios');
   assert.equal(lista.status, 200);
-  assert.equal(lista.data.length, 1);
+  assert.equal(lista.data.length, 3);
   for (const usuario of lista.data) { usuarioResponseSchema.parse(usuario); assert.equal('senha' in usuario, false); }
 
   assert.equal((await request('/usuarios/logout', 'POST', undefined, true)).status, 401);
@@ -628,15 +664,16 @@ test('GET /usuarios exige token e lista sem as senhas; logout invalida o token',
   assert.equal((await request('/vacinas')).status, 401);
   assert.equal((await request('/usuarios/logout', 'POST')).status, 401);
   // Um novo login, mesmo logo após o logout, gera outro token válido (jti único).
-  const novo = await request('/usuarios/login', 'POST', { email: 'teste@email.com', senha: 'senhaSegura123' }, true);
+  const novo = await request('/usuarios/login', 'POST', { email: 'teste@email.com', senha: 'senhaSegura123', perfil: 'ADMIN' }, true);
   token = novo.data.token;
   assert.equal((await request('/vacinas')).status, 200);
 });
 
-test('Swagger documenta o esquema Bearer, as rotas de usuário e o 401 em todas as rotas protegidas', async () => {
+test('Swagger documenta o esquema Bearer, as rotas de usuário, o 401 nas rotas protegidas e o 403 nas que exigem perfil', async () => {
   const doc = (await request('/docs.json', 'GET', undefined, true)).data;
   assert.deepEqual(doc.components.securitySchemes.bearerAuth, { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' });
   const publicas = new Set(['/', '/sobre', '/saudacao/{nome}', '/calculo/soma/{num1}/{num2}', 'post /usuarios', 'post /usuarios/login']);
+  const semPerfil = new Set(['post /usuarios/logout', 'get /usuarios/me', 'post /usuarios/perfil']);
   let protegidas = 0;
   for (const [caminho, metodos] of Object.entries<Record<string, { security?: unknown; responses: Record<string, unknown> }>>(doc.paths)) {
     for (const [metodo, rota] of Object.entries(metodos)) {
@@ -647,9 +684,201 @@ test('Swagger documenta o esquema Bearer, as rotas de usuário e o 401 em todas 
       protegidas++;
       assert.deepEqual(rota.security, [{ bearerAuth: [] }], `${metodo} ${caminho}`);
       assert.ok('401' in rota.responses, `${metodo} ${caminho}`);
+      // Só as rotas da própria conta dispensam perfil; as demais documentam o 403.
+      assert.equal('403' in rota.responses, !semPerfil.has(`${metodo} ${caminho}`), `${metodo} ${caminho}`);
     }
   }
-  assert.equal(protegidas, 36);
+  assert.equal(protegidas, 38);
+  assert.match(doc.paths['/animais'].post.description, /^Perfis: INSTITUICAO, ADMIN\./);
+  assert.deepEqual(doc.components.schemas.LoginInput.properties.perfil.enum, ['ADOTANTE', 'INSTITUICAO', 'ADMIN']);
   for (const nome of ['CreateUsuarioInput', 'LoginInput', 'Usuario', 'TokenResponse']) assert.ok(doc.components.schemas[nome], nome);
   assert.equal(doc.components.schemas.Usuario.properties.senha, undefined);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Perfis: adotante, instituição e administrador.
+
+const status = (resposta: { status: number }) => resposta.status;
+
+test('cadastro público cria conta e cadastro vinculados; ADMIN não é aceito e falhas não deixam registros', async () => {
+  const me = await como(tokenAdotante)('/usuarios/me');
+  assert.deepEqual([me.data.perfil, me.data.id_adotante, me.data.id_instituicao], ['ADOTANTE', adotante, null]);
+  usuarioResponseSchema.parse(me.data);
+  const admin = await request('/usuarios', 'POST', { nome: 'Invasor', email: 'x@email.com', senha: SENHA, perfil: 'ADMIN' }, true);
+  assert.deepEqual([admin.status, admin.data.details], [400, [{ campo: 'perfil', mensagem: 'perfil deve ser um de: ADOTANTE, INSTITUICAO.' }]]);
+  // CPF repetido: a transação desfaz a conta e nada é gravado.
+  const repetido = await request('/usuarios', 'POST', { nome: 'Outra', email: 'outra@email.com', senha: SENHA, perfil: 'ADOTANTE', adotante: dadosAdotante }, true);
+  assert.deepEqual([repetido.status, repetido.data], [409, { error: 'CPF já cadastrado' }]);
+  assert.equal((await request('/usuarios/login', 'POST', { email: 'outra@email.com', senha: SENHA, perfil: 'ADOTANTE' }, true)).status, 401);
+  // O banco também impede vínculos incoerentes.
+  for (const dados of [{ perfil: 'ADMIN', id_adotante: adotante }, { perfil: 'ADOTANTE', id_instituicao: instituicao }, { perfil: 'ADOTANTE' }]) {
+    await assert.rejects(db.orm.public.Usuario.where({ email: varchar<255>('adotante@email.com') }).update({ ...dados, perfil: varchar<20>(dados.perfil), id_adotante: dados.id_adotante ?? null }),
+      (erro: unknown) => (erro as { sqlState: string }).sqlState === '23514', JSON.stringify(dados));
+  }
+});
+
+test('login confere o perfil escolhido com o gravado e a escolha não concede permissões', async () => {
+  const login = (email: string, perfil: string) => request('/usuarios/login', 'POST', { email, senha: SENHA, perfil }, true);
+  assert.equal((await login('adotante@email.com', 'ADOTANTE')).data.perfil, 'ADOTANTE');
+  for (const [email, perfil] of [['adotante@email.com', 'INSTITUICAO'], ['adotante@email.com', 'ADMIN'], ['instituicao@email.com', 'ADOTANTE'], ['teste@email.com', 'INSTITUICAO']]) {
+    const recusado = await login(email, perfil);
+    assert.deepEqual([recusado.status, recusado.data], [403, { error: 'O perfil escolhido não corresponde a esta conta.' }], `${email} ${perfil}`);
+  }
+  assert.equal((await request('/usuarios/login', 'POST', { email: 'adotante@email.com', senha: 'errada123', perfil: 'ADMIN' }, true)).status, 401);
+  // Conta antiga: entra como adotante ou instituição (para concluir o perfil), nunca como administrador.
+  await contaAntiga('antiga@email.com');
+  assert.equal((await login('antiga@email.com', 'ADMIN')).status, 403);
+  const antiga = await login('antiga@email.com', 'INSTITUICAO');
+  assert.deepEqual([antiga.status, antiga.data.perfil], [200, null]);
+  assert.equal((await como(antiga.data.token)('/instituicoes')).status, 403);
+});
+
+test('conta antiga sem perfil não acessa o sistema até concluir o perfil, uma única vez e com cadastro novo', async () => {
+  const antiga = await contaAntiga('antiga@email.com');
+  const tokenAntiga = (await request('/usuarios/login', 'POST', { email: 'antiga@email.com', senha: SENHA, perfil: 'ADOTANTE' }, true)).data.token;
+  const pedir = como(tokenAntiga);
+  for (const [metodo, caminho, corpo] of [['GET', '/animais'], ['GET', '/instituicoes'], ['GET', '/vacinas'], ['GET', '/matches'], ['POST', '/matches', { id_animal: animal }], ['GET', '/usuarios']] as [string, string, unknown?][]) {
+    const resposta = await pedir(caminho, metodo, corpo);
+    assert.equal(resposta.status, 403, `${metodo} ${caminho}`);
+  }
+  assert.match((await pedir('/animais')).data.error, /Conta sem perfil/);
+  assert.equal((await pedir('/usuarios/me')).data.perfil, null);
+  assert.equal(status(await pedir('/usuarios/perfil', 'POST', { perfil: 'ADMIN' })), 400);
+  // Não assume cadastros existentes: CPF de outro adotante → 409, sem vínculo.
+  assert.equal(status(await pedir('/usuarios/perfil', 'POST', { perfil: 'ADOTANTE', adotante: dadosAdotante })), 409);
+  const dados = { perfil: 'ADOTANTE', adotante: { ...dadosAdotante, cpf: '00000000030' } };
+  const [primeira, segunda] = await Promise.all([pedir('/usuarios/perfil', 'POST', dados), pedir('/usuarios/perfil', 'POST', { ...dados, adotante: { ...dados.adotante, cpf: '00000000031' } })]);
+  assert.deepEqual([primeira.status, segunda.status].sort(), [200, 409]);
+  const concluida = (await pedir('/usuarios/me')).data;
+  assert.equal(concluida.perfil, 'ADOTANTE');
+  assert.equal((await db.orm.public.Adotante.all()).length, 2, 'a conclusão recusada não deixa adotante órfão');
+  // O mesmo token passa a valer com o novo perfil, que é lido do banco a cada requisição.
+  assert.equal(status(await pedir('/animais')), 200);
+  assert.equal(status(await pedir('/usuarios/perfil', 'POST', { perfil: 'INSTITUICAO', instituicao: { cnpj: '00000000000040', razao_social: 'X', endereco: 'Y' } })), 409);
+  assert.equal(antiga.id_usuario, concluida.id_usuario);
+});
+
+test('adotante: vê os disponíveis, solicita para si, acompanha só os próprios pedidos e não gerencia nem aprova', async () => {
+  const eu = como(tokenAdotante);
+  const outro = await registrar('outro-adotante@email.com', { perfil: 'ADOTANTE', adotante: { ...dadosAdotante, cpf: '00000000002' } });
+  const adotado = (await como(tokenInstituicao)('/animais', 'POST', { tipo: 'gato' })).data.id_animal;
+  const pedidoOutro = (await como(outro.token)('/matches', 'POST', { id_animal: adotado })).data.id_match;
+  assert.equal(status(await como(tokenInstituicao)(`/matches/${pedidoOutro}/status`, 'PATCH', { status: 'APROVADO' })), 200);
+
+  // Somente animais sem adoção aprovada; o adotado só é visível a quem o pediu.
+  assert.deepEqual((await eu('/animais')).data.map((a: { id_animal: number }) => a.id_animal), [animal]);
+  assert.deepEqual((await eu('/animais/tipo/gato')).data, []);
+  assert.equal(status(await eu(`/animais/${adotado}`)), 403);
+  assert.equal(status(await eu(`/animais/${adotado}/vacinas`)), 403);
+  assert.equal(status(await como(outro.token)(`/animais/${adotado}`)), 200);
+  assert.equal(status(await eu(`/animais/${animal}/vacinas`)), 200);
+
+  // Pedido: o solicitante é sempre a própria conta.
+  const pedido = await eu('/matches', 'POST', { id_animal: animal });
+  assert.deepEqual([pedido.status, pedido.data.id_adotante, pedido.data.status], [201, adotante, 'PENDENTE']);
+  assert.equal(status(await eu('/matches', 'POST', { id_adotante: adotante, id_animal: animal })), 201);
+  assert.equal(status(await eu('/matches', 'POST', { id_adotante: outro.conta.id_adotante, id_animal: animal })), 403);
+  assert.equal(status(await eu('/matches', 'POST', { id_animal: adotado })), 409);
+  assert.ok((await eu('/matches')).data.every((m: { id_adotante: number }) => m.id_adotante === adotante));
+  assert.ok((await eu('/matches/hoje')).data.every((m: { id_adotante: number }) => m.id_adotante === adotante));
+  assert.equal(status(await eu(`/matches/${pedidoOutro}`)), 403);
+  assert.equal(status(await eu(pedido.location!)), 200);
+
+  // Sem permissão: aprovar, excluir pedidos, gerenciar animais, vacinas e cadastros de terceiros.
+  for (const [metodo, caminho, corpo] of [
+    ['PATCH', `${pedido.location}/status`, { status: 'APROVADO' }], ['PUT', pedido.location!, { status: 'CANCELADO' }], ['DELETE', pedido.location!],
+    ['POST', '/animais', { tipo: 'gato', id_instituicao: instituicao }], ['PUT', `/animais/${animal}`, { tipo: 'gato' }], ['DELETE', `/animais/${animal}`],
+    ['POST', '/vacinas', { nome: 'V8' }], ['GET', '/animais-vacinas'], ['POST', '/animais-vacinas', { id_animal: animal, id_vacina: vacina, data_aplicacao: '2026-01-01' }],
+    ['GET', `/adotantes/${outro.conta.id_adotante}`], ['PUT', `/adotantes/${outro.conta.id_adotante}`, { nome: 'Trocado' }],
+    ['POST', '/adotantes', { ...dadosAdotante, cpf: '00000000009' }], ['DELETE', `/adotantes/${adotante}`],
+    ['PUT', `/instituicoes/${instituicao}`, { razao_social: 'Trocada' }], ['POST', '/instituicoes', { cnpj: '00000000000050', razao_social: 'X', endereco: 'Y' }],
+    ['GET', '/usuarios'],
+  ] as [string, string, unknown?][]) {
+    assert.equal(status(await eu(caminho, metodo, corpo)), 403, `${metodo} ${caminho}`);
+  }
+  assert.equal((await db.orm.public.Match.where({ id_match: pedido.data.id_match }).first())?.status, 'PENDENTE');
+
+  // Perfil próprio: consulta e altera somente o seu cadastro.
+  assert.deepEqual((await eu('/adotantes')).data.map((a: { id_adotante: number }) => a.id_adotante), [adotante]);
+  assert.equal((await eu(`/adotantes/${adotante}`, 'PUT', { nome: 'Ana Atualizada' })).data.nome, 'Ana Atualizada');
+  assert.equal(status(await eu('/instituicoes')), 200);
+});
+
+test('instituição: gerencia só os próprios animais e decide só os pedidos recebidos, com uma aprovação por animal', async () => {
+  const eu = como(tokenInstituicao);
+  const outra = await registrar('outra-instituicao@email.com', { perfil: 'INSTITUICAO', instituicao: { cnpj: '00000000000002', razao_social: 'Outro Abrigo', endereco: 'Rua O' } });
+  const animalOutra = (await como(outra.token)('/animais', 'POST', { tipo: 'gato' })).data.id_animal;
+  const naoSolicitante = (await request('/adotantes', 'POST', { ...dadosAdotante, cpf: '00000000008' })).data.id_adotante;
+
+  // Animais: cadastro sempre para si; nada sobre animais de outra instituição.
+  const meu = await eu('/animais', 'POST', { tipo: 'coelho', id_instituicao: instituicao });
+  assert.deepEqual([meu.status, meu.data.id_instituicao], [201, instituicao]);
+  assert.deepEqual((await eu('/animais')).data.map((a: { id_animal: number }) => a.id_animal), [animal, meu.data.id_animal]);
+  for (const [metodo, caminho, corpo] of [
+    ['POST', '/animais', { tipo: 'gato', id_instituicao: outra.conta.id_instituicao }],
+    ['GET', `/animais/${animalOutra}`], ['GET', `/animais/${animalOutra}/vacinas`], ['PUT', `/animais/${animalOutra}`, { tipo: 'cão' }], ['DELETE', `/animais/${animalOutra}`],
+    ['PUT', `/animais/${animal}`, { id_instituicao: outra.conta.id_instituicao }],
+    ['POST', '/animais-vacinas', { id_animal: animalOutra, id_vacina: vacina, data_aplicacao: '2026-01-01' }],
+    ['PUT', `/instituicoes/${outra.conta.id_instituicao}`, { razao_social: 'Trocada' }],
+    ['POST', '/instituicoes', { cnpj: '00000000000050', razao_social: 'X', endereco: 'Y' }], ['DELETE', `/instituicoes/${instituicao}`],
+    ['POST', '/matches', { id_animal: animal }], ['GET', `/adotantes/${naoSolicitante}`], ['PUT', `/adotantes/${adotante}`, { nome: 'X' }], ['GET', '/usuarios'],
+  ] as [string, string, unknown?][]) {
+    assert.equal(status(await eu(caminho, metodo, corpo)), 403, `${metodo} ${caminho}`);
+  }
+  assert.equal((await eu(`/animais/${animal}`, 'PUT', { apelido: 'Rex', id_instituicao: instituicao })).data.apelido, 'Rex');
+  assert.equal((await eu(`/instituicoes/${instituicao}`, 'PUT', { razao_social: 'Abrigo Atualizado' })).data.razao_social, 'Abrigo Atualizado');
+
+  // Vacinações: somente dos próprios animais.
+  const dose = await eu('/animais-vacinas', 'POST', { id_animal: animal, id_vacina: vacina, data_aplicacao: '2026-01-01' });
+  assert.equal(dose.status, 201);
+  const doseOutra = (await como(outra.token)('/animais-vacinas', 'POST', { id_animal: animalOutra, id_vacina: vacina, data_aplicacao: '2026-01-01' })).data;
+  assert.deepEqual((await eu('/animais-vacinas')).data.map((d: { id_animal_vacina: number }) => d.id_animal_vacina), [dose.data.id_animal_vacina]);
+  assert.equal(status(await eu(`/animais-vacinas/${doseOutra.id_animal_vacina}`)), 403);
+  assert.equal(status(await eu(`/animais-vacinas/${doseOutra.id_animal_vacina}`, 'DELETE')), 403);
+  assert.equal(status(await eu(dose.location!, 'PUT', { id_animal: animalOutra })), 403);
+
+  // Pedidos recebidos: lista, solicitantes e decisão somente dos seus animais.
+  const adot = como(tokenAdotante);
+  const primeiro = (await adot('/matches', 'POST', { id_animal: animal })).data.id_match;
+  const segundo = (await adot('/matches', 'POST', { id_animal: animal })).data.id_match;
+  const deOutra = (await adot('/matches', 'POST', { id_animal: animalOutra })).data.id_match;
+  assert.deepEqual((await eu('/matches')).data.map((m: { id_match: number }) => m.id_match), [primeiro, segundo]);
+  assert.deepEqual((await eu('/matches/hoje')).data.map((m: { id_match: number }) => m.id_match), [primeiro, segundo]);
+  assert.deepEqual((await eu('/adotantes')).data.map((a: { id_adotante: number }) => a.id_adotante), [adotante]);
+  assert.equal(status(await eu(`/adotantes/${adotante}`)), 200);
+  for (const [metodo, caminho, corpo] of [['GET', `/matches/${deOutra}`], ['PATCH', `/matches/${deOutra}/status`, { status: 'APROVADO' }], ['PUT', `/matches/${deOutra}`, { status: 'CANCELADO' }], ['DELETE', `/matches/${deOutra}`]] as [string, string, unknown?][]) {
+    assert.equal(status(await eu(caminho, metodo, corpo)), 403, `${metodo} ${caminho}`);
+  }
+  assert.equal((await eu(`/matches/${primeiro}/status`, 'PATCH', { status: 'APROVADO' })).data.status, 'APROVADO');
+  assert.equal(status(await eu(`/matches/${segundo}/status`, 'PATCH', { status: 'APROVADO' })), 409);
+  assert.equal((await eu(`/matches/${segundo}/status`, 'PATCH', { status: 'CANCELADO' })).data.status, 'CANCELADO');
+  assert.equal(status(await adot('/matches', 'POST', { id_animal: animal })), 409);
+  assert.equal((await db.orm.public.Match.where({ id_match: deOutra }).first())?.status, 'PENDENTE');
+});
+
+test('administrador gerencia todos os cadastros e pedidos, informando os responsáveis', async () => {
+  const outra = await registrar('outra-instituicao@email.com', { perfil: 'INSTITUICAO', instituicao: { cnpj: '00000000000002', razao_social: 'Outro Abrigo', endereco: 'Rua O' } });
+  const animalOutra = (await request('/animais', 'POST', { tipo: 'gato', id_instituicao: outra.conta.id_instituicao })).data;
+  assert.equal(animalOutra.id_instituicao, outra.conta.id_instituicao);
+  assert.equal((await request('/animais')).data.length, 2);
+  assert.equal((await request(`/animais/${animal}`, 'PUT', { id_instituicao: outra.conta.id_instituicao })).data.id_instituicao, outra.conta.id_instituicao);
+  assert.deepEqual(await request('/matches', 'POST', { id_animal: animal }).then((r) => [r.status, r.data]), [400, { error: 'id_adotante é obrigatório para o administrador.' }]);
+  const pedido = await request('/matches', 'POST', { id_adotante: adotante, id_animal: animal });
+  assert.equal(pedido.status, 201);
+  assert.equal((await request(`${pedido.location}/status`, 'PATCH', { status: 'APROVADO' })).data.status, 'APROVADO');
+  assert.equal((await request(`/adotantes/${adotante}`, 'PUT', { nome: 'Pelo Admin' })).data.nome, 'Pelo Admin');
+  assert.equal((await request(`/instituicoes/${instituicao}`, 'PUT', { endereco: 'Rua Admin' })).data.endereco, 'Rua Admin');
+  assert.equal((await request('/usuarios')).data.length, 4);
+});
+
+test('promoção a administrador é controlada: conta existente, sem perfil, preservando a senha', async () => {
+  const servico = usuarioService(db);
+  const antiga = await contaAntiga('promover@email.com');
+  const promovida = await servico.tornarAdmin(varchar<255>('promover@email.com'));
+  assert.equal(promovida.perfil, 'ADMIN');
+  assert.equal((await db.orm.public.Usuario.where({ id_usuario: antiga.id_usuario }).first())?.senha, antiga.senha);
+  assert.equal((await request('/usuarios/login', 'POST', { email: 'promover@email.com', senha: SENHA, perfil: 'ADMIN' }, true)).status, 200);
+  assert.equal((await servico.tornarAdmin(varchar<255>('promover@email.com'))).perfil, 'ADMIN');
+  await assert.rejects(servico.tornarAdmin(varchar<255>('adotante@email.com')), /já possui o perfil ADOTANTE/);
+  await assert.rejects(servico.tornarAdmin(varchar<255>('ninguem@email.com')), /não encontrado/);
 });

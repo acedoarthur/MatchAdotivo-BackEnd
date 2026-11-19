@@ -5,7 +5,11 @@ import type { CreateAnimalVacinaDTO, UpdateAnimalVacinaDTO } from './animal-vaci
 export function animalVacinaRepository(db: Database, tx?: Transaction) {
   const Aplicacoes = executor(db, tx).AnimalVacina;
   return {
-    findAll: () => Aplicacoes.orderBy((v) => v.id_animal_vacina.asc()).all(),
+    // Sem instituição: todas as aplicações; com ela, só as dos seus animais.
+    findAll: (id_instituicao?: number) => (id_instituicao === undefined
+      ? Aplicacoes
+      : Aplicacoes.where((v) => v.animal.some((a) => a.id_instituicao.eq(id_instituicao)))
+    ).orderBy((v) => v.id_animal_vacina.asc()).all(),
     findById: (id_animal_vacina: number) => Aplicacoes.where({ id_animal_vacina }).first(),
     // RN05: cada dose é um registro próprio; o histórico traz os dados da vacina.
     findByAnimalComVacina: (id_animal: number) => Aplicacoes.where({ id_animal }).include('vacina').all(),

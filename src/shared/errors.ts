@@ -17,6 +17,11 @@ export class UnauthorizedError extends AppError {
   constructor(message = 'Não autorizado') { super(message, 401); }
 }
 
+// Autenticado, mas sem permissão: perfil errado, conta sem perfil ou registro de outra conta.
+export class ForbiddenError extends AppError {
+  constructor(message = 'Acesso não permitido') { super(message, 403); }
+}
+
 export class NotFoundError extends AppError {
   constructor(message = 'Registro não encontrado.') { super(message, 404); }
 }

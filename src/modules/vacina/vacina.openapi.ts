@@ -1,5 +1,6 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { registrarCrud } from '../../shared/openapi.helpers';
+import { permissoesVacina } from './vacina.routes';
 import { createVacinaSchema, updateVacinaSchema, vacinaResponseSchema } from './vacina.schema';
 
 export function registerVacinaPaths(registry: OpenAPIRegistry) {
@@ -7,5 +8,6 @@ export function registerVacinaPaths(registry: OpenAPIRegistry) {
     tag: 'Vacinas', caminho: '/vacinas', nome: 'vacina',
     createSchema: createVacinaSchema, updateSchema: updateVacinaSchema, responseSchema: vacinaResponseSchema,
     conflitoExclusao: 'A vacina possui aplicações registradas',
+    perfis: permissoesVacina,
   });
 }

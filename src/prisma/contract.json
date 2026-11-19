@@ -130,6 +130,22 @@
                   "model": "Match",
                   "namespace": "public"
                 }
+              },
+              "usuario": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id_adotante"
+                  ],
+                  "targetFields": [
+                    "id_adotante"
+                  ]
+                },
+                "to": {
+                  "model": "Usuario",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -465,6 +481,22 @@
                   "model": "Animal",
                   "namespace": "public"
                 }
+              },
+              "usuario": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id_instituicao"
+                  ],
+                  "targetFields": [
+                    "id_instituicao"
+                  ]
+                },
+                "to": {
+                  "model": "Usuario",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -605,6 +637,20 @@
                   }
                 }
               },
+              "id_adotante": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "id_instituicao": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
               "id_usuario": {
                 "nullable": false,
                 "type": {
@@ -622,6 +668,16 @@
                   }
                 }
               },
+              "perfil": {
+                "nullable": true,
+                "type": {
+                  "codecId": "sql/varchar@1",
+                  "kind": "scalar",
+                  "typeParams": {
+                    "length": 20
+                  }
+                }
+              },
               "senha": {
                 "nullable": false,
                 "type": {
@@ -633,7 +689,40 @@
                 }
               }
             },
-            "relations": {},
+            "relations": {
+              "adotante": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id_adotante"
+                  ],
+                  "targetFields": [
+                    "id_adotante"
+                  ]
+                },
+                "to": {
+                  "model": "Adotante",
+                  "namespace": "public"
+                }
+              },
+              "instituicao": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id_instituicao"
+                  ],
+                  "targetFields": [
+                    "id_instituicao"
+                  ]
+                },
+                "to": {
+                  "model": "Instituicao",
+                  "namespace": "public"
+                }
+              }
+            },
             "storage": {
               "fields": {
                 "created_at": {
@@ -642,11 +731,20 @@
                 "email": {
                   "column": "email"
                 },
+                "id_adotante": {
+                  "column": "id_adotante"
+                },
+                "id_instituicao": {
+                  "column": "id_instituicao"
+                },
                 "id_usuario": {
                   "column": "id_usuario"
                 },
                 "nome": {
                   "column": "nome"
+                },
+                "perfil": {
+                  "column": "perfil"
                 },
                 "senha": {
                   "column": "senha"
@@ -1161,6 +1259,13 @@
               "uniques": []
             },
             "usuarios": {
+              "checks": [
+                {
+                  "expression": "(perfil IS NULL AND id_adotante IS NULL AND id_instituicao IS NULL) OR (perfil = 'ADOTANTE' AND id_adotante IS NOT NULL AND id_instituicao IS NULL) OR (perfil = 'INSTITUICAO' AND id_instituicao IS NOT NULL AND id_adotante IS NULL) OR (perfil = 'ADMIN' AND id_adotante IS NULL AND id_instituicao IS NULL)",
+                  "name": "usuario_perfil_coerente_2d044a9d",
+                  "prefix": "usuario_perfil_coerente"
+                }
+              ],
               "columns": {
                 "created_at": {
                   "codecId": "pg/timestamptz-temporal@1",
@@ -1179,6 +1284,16 @@
                     "length": 255
                   }
                 },
+                "id_adotante": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
+                "id_instituicao": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
                 "id_usuario": {
                   "codecId": "pg/int4@1",
                   "default": {
@@ -1196,6 +1311,14 @@
                     "length": 200
                   }
                 },
+                "perfil": {
+                  "codecId": "sql/varchar@1",
+                  "nativeType": "character varying",
+                  "nullable": true,
+                  "typeParams": {
+                    "length": 20
+                  }
+                },
                 "senha": {
                   "codecId": "sql/varchar@1",
                   "nativeType": "character varying",
@@ -1205,7 +1328,42 @@
                   }
                 }
               },
-              "foreignKeys": [],
+              "foreignKeys": [
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "id_adotante"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "usuarios"
+                  },
+                  "target": {
+                    "columns": [
+                      "id_adotante"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "adotantes"
+                  }
+                },
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "id_instituicao"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "usuarios"
+                  },
+                  "target": {
+                    "columns": [
+                      "id_instituicao"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "instituicoes"
+                  }
+                }
+              ],
               "indexes": [],
               "primaryKey": {
                 "columns": [
@@ -1216,6 +1374,16 @@
                 {
                   "columns": [
                     "email"
+                  ]
+                },
+                {
+                  "columns": [
+                    "id_adotante"
+                  ]
+                },
+                {
+                  "columns": [
+                    "id_instituicao"
                   ]
                 }
               ]
@@ -1255,7 +1423,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "0f08593dfd967a13f9fe4fd90ed8c8533294b76b20256bb2d92d1ad7c7be03eb"
+    "storageHash": "59b33a22d609d4d74ff5c3aea6a3e612a3f8d769f4b4f9761795ec2e9e449958"
   },
   "capabilities": {
     "postgres": {

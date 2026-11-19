@@ -19,52 +19,97 @@ GET {{baseUrl}}/saudacao/Ana
 ### Soma
 GET {{baseUrl}}/calculo/soma/10/5
 
-### Cadastrar usuário (rota pública; a senha é gravada criptografada)
+### Criar conta de INSTITUIÇÃO (pública): conta e cadastro da instituição na mesma transação
+# @name instituicao
 POST {{baseUrl}}/usuarios
 Content-Type: application/json
 
 {
-  "nome": "Maria da Silva",
-  "email": "maria@email.com",
-  "senha": "senhaSegura123"
+  "nome": "Responsável do Abrigo",
+  "email": "abrigo@email.com",
+  "senha": "senhaSegura123",
+  "perfil": "INSTITUICAO",
+  "instituicao": {
+    "cnpj": "00.000.000/0000-03",
+    "razao_social": "Abrigo Patas Amigas",
+    "endereco": "Rua das Flores, 100, Uberaba - MG"
+  }
 }
 
-### Login: devolve o token JWT (válido por 1 hora)
+### Criar conta de ADOTANTE (pública)
+# @name adotante
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{
+  "nome": "Ana Exemplo",
+  "email": "ana@email.com",
+  "senha": "senhaSegura123",
+  "perfil": "ADOTANTE",
+  "adotante": {
+    "cpf": "000.000.000-02",
+    "nome": "Ana Exemplo",
+    "endereco": "Rua do Sol, 50",
+    "tipo_residencia": "CASA",
+    "data_nascimento": "1990-10-10",
+    "possui_animais": false,
+    "quantidade_animais": 0
+  }
+}
+
+### ADMIN não pode ser criado pelo cadastro público → 400
+POST {{baseUrl}}/usuarios
+Content-Type: application/json
+
+{"nome": "Invasor", "email": "invasor@email.com", "senha": "senhaSegura123", "perfil": "ADMIN"}
+
+### Login da instituição (o perfil escolhido precisa ser o da conta)
+# @name loginInstituicao
+POST {{baseUrl}}/usuarios/login
+Content-Type: application/json
+
+{"email": "abrigo@email.com", "senha": "senhaSegura123", "perfil": "INSTITUICAO"}
+
+### Login do adotante
+# @name loginAdotante
+POST {{baseUrl}}/usuarios/login
+Content-Type: application/json
+
+{"email": "ana@email.com", "senha": "senhaSegura123", "perfil": "ADOTANTE"}
+
+### Perfil diferente do da conta → 403 (a escolha não concede permissões)
+POST {{baseUrl}}/usuarios/login
+Content-Type: application/json
+
+{"email": "ana@email.com", "senha": "senhaSegura123", "perfil": "ADMIN"}
+
+### Login do administrador (conta promovida com: npm run usuario:admin -- --email <conta>)
 # @name login
 POST {{baseUrl}}/usuarios/login
 Content-Type: application/json
 
-{
-  "email": "maria@email.com",
-  "senha": "senhaSegura123"
-}
+{"email": "arthur.acedo@example.com", "senha": "<senha da conta>", "perfil": "ADMIN"}
 
-### Token usado nas requisições protegidas abaixo (execute o login antes)
+### Tokens usados abaixo (execute os logins antes)
+@tokenInstituicao = {{loginInstituicao.response.body.$.token}}
+@tokenAdotante = {{loginAdotante.response.body.$.token}}
 @token = {{login.response.body.$.token}}
 
-### Listar usuários (protegida; a resposta não traz as senhas)
+### Conta autenticada (perfil e cadastro vinculado)
+GET {{baseUrl}}/usuarios/me
+Authorization: Bearer {{tokenAdotante}}
+
+### Listar usuários (somente ADMIN; a resposta não traz as senhas)
 GET {{baseUrl}}/usuarios
 Authorization: Bearer {{token}}
 
 ### Sem token → 401 "Token não informado"
 GET {{baseUrl}}/instituicoes
 
-### Criar instituição
-# @name instituicao
-POST {{baseUrl}}/instituicoes
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{
-  "cnpj": "00.000.000/0000-03",
-  "razao_social": "Abrigo Patas Amigas",
-  "endereco": "Rua das Flores, 100, Uberaba - MG"
-}
-
-### Criar animal vinculado à instituição acima
+### Instituição cadastra um animal: a instituição é a da conta logada
 # @name animal
 POST {{baseUrl}}/animais
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {
@@ -72,22 +117,28 @@ Content-Type: application/json
   "raca": "Sem raça definida",
   "data_nascimento": "2024-05-10",
   "detalhes": "Dócil e brincalhão",
-  "apelido": "Bolinha",
-  "id_instituicao": {{instituicao.response.body.$.id_instituicao}}
+  "apelido": "Bolinha"
 }
 
-### Criar vacina
+### Adotante não cadastra animais → 403
+POST {{baseUrl}}/animais
+Authorization: Bearer {{tokenAdotante}}
+Content-Type: application/json
+
+{"tipo": "gato"}
+
+### Criar vacina (instituição ou ADMIN)
 # @name vacina
 POST {{baseUrl}}/vacinas
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {"nome": "Antirrábica"}
 
-### Registrar aplicação
+### Registrar aplicação (somente em animais da própria instituição)
 # @name aplicacao
 POST {{baseUrl}}/animais-vacinas
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {
@@ -96,45 +147,45 @@ Content-Type: application/json
   "data_aplicacao": "2026-05-10"
 }
 
-### Criar adotante
-# @name adotante
-POST {{baseUrl}}/adotantes
-Authorization: Bearer {{token}}
-Content-Type: application/json
+### Adotante vê os animais disponíveis
+GET {{baseUrl}}/animais
+Authorization: Bearer {{tokenAdotante}}
 
-{
-  "cpf": "000.000.000-02",
-  "nome": "Ana Exemplo",
-  "endereco": "Rua do Sol, 50",
-  "tipo_residencia": "CASA",
-  "data_nascimento": "1990-10-10",
-  "possui_animais": false,
-  "quantidade_animais": 0
-}
-
-### Criar match
+### Adotante solicita o match: o solicitante é a própria conta
 # @name match
 POST {{baseUrl}}/matches
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenAdotante}}
 Content-Type: application/json
 
-{
-  "id_adotante": {{adotante.response.body.$.id_adotante}},
-  "id_animal": {{animal.response.body.$.id_animal}}
-}
+{"id_animal": {{animal.response.body.$.id_animal}}}
 
-### Pedidos feitos hoje (horário de Brasília)
-GET {{baseUrl}}/matches/hoje
-Authorization: Bearer {{token}}
+### Adotante acompanha os próprios pedidos
+GET {{baseUrl}}/matches
+Authorization: Bearer {{tokenAdotante}}
 
-### Aprovar match
-PUT {{baseUrl}}/matches/{{match.response.body.$.id_match}}
-Authorization: Bearer {{token}}
+### Adotante não aprova → 403
+PATCH {{baseUrl}}/matches/{{match.response.body.$.id_match}}/status
+Authorization: Bearer {{tokenAdotante}}
 Content-Type: application/json
 
 {"status": "APROVADO"}
 
-### Listagens dos seis módulos
+### Instituição vê os pedidos recebidos e os solicitantes
+GET {{baseUrl}}/matches/hoje
+Authorization: Bearer {{tokenInstituicao}}
+
+###
+GET {{baseUrl}}/adotantes
+Authorization: Bearer {{tokenInstituicao}}
+
+### Instituição aprova (recusar = CANCELADO)
+PATCH {{baseUrl}}/matches/{{match.response.body.$.id_match}}/status
+Authorization: Bearer {{tokenInstituicao}}
+Content-Type: application/json
+
+{"status": "APROVADO"}
+
+### Listagens dos seis módulos (ADMIN vê todos os registros)
 GET {{baseUrl}}/instituicoes
 Authorization: Bearer {{token}}
 
@@ -172,35 +223,35 @@ Authorization: Bearer {{token}}
 
 ### Atualizar instituição
 PUT {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {"foto": "https://example.com/abrigo.jpg"}
 
 ### Atualizar animal
 PUT {{baseUrl}}/animais/{{animal.response.body.$.id_animal}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {"detalhes": "Sociável e acostumado com crianças"}
 
 ### Atualizar vacina
 PUT {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {"nome": "Vacina antirrábica"}
 
 ### Atualizar dose
 PUT {{baseUrl}}/animais-vacinas/{{aplicacao.response.body.$.id_animal_vacina}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenInstituicao}}
 Content-Type: application/json
 
 {"data_aplicacao": "2026-05-11"}
 
 ### Atualizar adotante
 PUT {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
-Authorization: Bearer {{token}}
+Authorization: Bearer {{tokenAdotante}}
 Content-Type: application/json
 
 {"endereco": "Rua do Sol, 100"}
@@ -249,7 +300,7 @@ Content-Type: application/json
 
 {"quantidade_animais": 2}
 
-### Exclusões: primeiro os registros que dependem de outros
+### Exclusões (ADMIN; instituição para os próprios animais e pedidos): primeiro os registros que dependem de outros
 DELETE {{baseUrl}}/matches/{{match.response.body.$.id_match}}
 Authorization: Bearer {{token}}
 
@@ -265,11 +316,11 @@ Authorization: Bearer {{token}}
 DELETE {{baseUrl}}/vacinas/{{vacina.response.body.$.id_vacina}}
 Authorization: Bearer {{token}}
 
-###
+### Adotante vinculado a uma conta → 409 (exclusão de cadastro é somente do ADMIN e barrada pelo vínculo)
 DELETE {{baseUrl}}/adotantes/{{adotante.response.body.$.id_adotante}}
 Authorization: Bearer {{token}}
 
-###
+### Instituição vinculada a uma conta → 409
 DELETE {{baseUrl}}/instituicoes/{{instituicao.response.body.$.id_instituicao}}
 Authorization: Bearer {{token}}
 

@@ -1,6 +1,6 @@
 # MatchAdotivo
 
-Sistema único de adoção que evolui cumulativamente com os laboratórios solicitados. O projeto reúne as rotas Express, o processamento de adoções com Promises, a persistência com TypeScript, Prisma ORM 8 e PostgreSQL, a validação de entrada com Zod, a documentação OpenAPI/Swagger gerada dos mesmos schemas e a autenticação com JWT. As seis entidades do domínio são Instituição, Animal, Vacina, Animal_Vacina, Adotante e Match; o Usuário existe apenas para autenticar quem acessa a API.
+Sistema único de adoção que evolui cumulativamente com os laboratórios solicitados. O projeto reúne as rotas Express, o processamento de adoções com Promises, a persistência com TypeScript, Prisma ORM 8 e PostgreSQL, a validação de entrada com Zod, a documentação OpenAPI/Swagger gerada dos mesmos schemas e a autenticação com JWT. As seis entidades do domínio são Instituição, Animal, Vacina, Animal_Vacina, Adotante e Match; o Usuário autentica quem acessa a API e define o seu perfil (Adotante, Instituição ou Admin).
 
 A orientação permanente está em [AGENTS.md](AGENTS.md). Novos laboratórios devem ser integrados a esta aplicação somente quando solicitados.
 
@@ -36,6 +36,7 @@ Os dados são persistentes. Um banco novo começa vazio; use [requisicoes.http](
 | `npm run dev` | Iniciar a API com watch |
 | `npm run adocao -- --adotante 1 --animal 1` | Processar uma adoção no mesmo banco da API |
 | `npm run adocao:erro -- --adotante 1 --animal 1` | Demonstrar uma falha na análise da solicitação |
+| `npm run usuario:admin -- --email conta@exemplo.com` | Atribuir o perfil Admin a uma conta existente sem perfil (preserva a senha) |
 | `npm run typecheck` | Verificar os tipos TypeScript |
 | `npm test` | Executar todos os testes unitários e de integração |
 | `npm run test:unit` | Verificar o encadeamento das Promises e os schemas de validação, sem banco |
@@ -54,10 +55,12 @@ Os dados são persistentes. Um banco novo começa vazio; use [requisicoes.http](
 | Método | Caminho | Finalidade |
 | --- | --- | --- |
 | GET | `/` | Boas-vindas |
-| POST | `/usuarios` | Cadastrar usuário (pública) |
-| POST | `/usuarios/login` | Login: devolve o token JWT (pública) |
+| POST | `/usuarios` | Criar conta de adotante ou instituição (pública) |
+| POST | `/usuarios/login` | Login com o perfil escolhido: devolve o token JWT (pública) |
 | POST | `/usuarios/logout` | Invalidar o token (protegida) |
-| GET | `/usuarios` | Listar usuários (protegida) |
+| GET | `/usuarios/me` | Conta autenticada, com perfil e cadastro vinculado (protegida) |
+| POST | `/usuarios/perfil` | Concluir o perfil de uma conta antiga (protegida) |
+| GET | `/usuarios` | Listar usuários (somente Admin) |
 | GET | `/docs` | Interface do Swagger para consultar e testar as rotas |
 | GET | `/docs.json` | Documento OpenAPI 3.0 em JSON (importável no Postman/Insomnia) |
 | GET | `/sobre` | Descrição do sistema e das entidades |
@@ -79,7 +82,7 @@ As seis entidades possuem CRUD completo:
 | Adotante | `/adotantes` | `id_adotante` |
 | Match | `/matches` | `id_match` |
 
-Em cada prefixo, `GET /` lista, `GET /:id` consulta, `POST /` cadastra, `PUT /:id` atualiza os campos enviados e `DELETE /:id` exclui. No match, a atualização altera apenas o status; os vínculos e a data identificam o pedido original.
+Em cada prefixo, `GET /` lista, `GET /:id` consulta, `POST /` cadastra, `PUT /:id` atualiza os campos enviados e `DELETE /:id` exclui, conforme os perfis descritos em [Perfis e autorização](#perfis-e-autorização). No match, a atualização altera apenas o status; os vínculos e a data identificam o pedido original.
 
 Listagens retornam arrays, seguindo a API persistente já implementada. Consultas, cadastros e atualizações retornam o registro. Envie `Content-Type: application/json` nos cadastros e alterações. IDs são gerados pelo banco; campos opcionais omitidos ou `null` ficam como `null`.
 
@@ -90,6 +93,7 @@ Listagens retornam arrays, seguindo a API persistente já implementada. Consulta
 | 204 | Exclusão, sem corpo |
 | 400 | Entrada, JSON, parâmetro, data ou atualização inválida (ver formato abaixo) |
 | 401 | Token ausente, inválido, expirado ou invalidado pelo logout; credenciais inválidas no login |
+| 403 | Perfil sem permissão, conta sem perfil, registro de outra conta ou perfil do login diferente do da conta |
 | 404 | Rota ou registro inexistente |
 | 409 | Duplicidade, adoção indisponível ou exclusão impedida por vínculos |
 | 413 | Corpo maior que 100 KB |
@@ -159,18 +163,49 @@ Respostas e códigos HTTP não mudaram, com uma exceção deliberada de texto: a
 
 As rotas do sistema (`/instituicoes`, `/animais`, `/vacinas`, `/animais-vacinas`, `/adotantes`, `/matches` e suas subrotas) exigem login. Públicas: as rotas básicas (`/`, `/sobre`, saudação e soma), `/docs`, `POST /usuarios` e `POST /usuarios/login`.
 
-1. `POST /usuarios` cadastra um usuário (`nome`, `email`, `senha`). A senha tem 8 a 72 bytes, é gravada com **bcrypt** (custo 10) e nunca é devolvida; o e-mail é guardado em minúsculas e é único (409).
-2. `POST /usuarios/login` devolve `{ "token": "..." }`, um JWT (HS256) com o id do usuário, válido por **1 hora**. E-mail inexistente e senha errada respondem igualmente `401 Credenciais inválidas`.
+1. `POST /usuarios` cria a conta (`nome`, `email`, `senha`, `perfil`) e, na mesma transação, o cadastro do perfil: `"perfil": "ADOTANTE"` com o objeto `adotante`, ou `"perfil": "INSTITUICAO"` com o objeto `instituicao` (os mesmos schemas de `/adotantes` e `/instituicoes`). A senha tem 8 a 72 bytes, é gravada com **bcrypt** (custo 10) e nunca é devolvida; o e-mail é guardado em minúsculas e é único (409). E-mail, CPF ou CNPJ repetidos desfazem tudo.
+2. `POST /usuarios/login` recebe também o `perfil` escolhido na tela (`ADOTANTE`, `INSTITUICAO` ou `ADMIN`) e devolve `{ "token": "...", "perfil": "..." }`, um JWT (HS256) com o id do usuário, válido por **1 hora**. E-mail inexistente e senha errada respondem igualmente `401 Credenciais inválidas`; com credenciais corretas, um perfil diferente do gravado responde `403`.
 3. Envie o token em toda requisição protegida: `Authorization: Bearer <token>`. No Swagger, use o botão **Authorize** e cole somente o token.
-4. `POST /usuarios/logout` (protegida) invalida o token. `GET /usuarios` (protegida) lista os usuários, sem as senhas.
+4. `POST /usuarios/logout` (protegida) invalida o token. `GET /usuarios/me` devolve a conta autenticada; `GET /usuarios` (somente Admin) lista as contas, sem as senhas.
 
 Sempre `401`, com `{ "error": "..." }`: `Token não informado` (cabeçalho ausente ou fora do formato `Bearer <token>`), `Token inválido ou expirado` (assinatura inválida, token alterado ou expirado) e `Token inválido` (token já invalidado pelo logout).
 
 - **Segredo:** defina `JWT_SECRET` no `.env` (o servidor não inicia sem ele). O `.env.example` traz apenas um placeholder; gere um valor para cada ambiente com `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. O `.env` não é versionado.
-- **Blacklist em memória:** os tokens invalidados pelo logout ficam na memória do servidor e são perdidos a cada reinício (inclusive com `npm run dev`): um token que fez logout volta a valer até expirar. Persistir a lista (tabela ou Redis) e papéis `user`/`admin` com 403 são os desafios opcionais do laboratório e **não** foram implementados.
+- **Blacklist em memória:** os tokens invalidados pelo logout ficam na memória do servidor e são perdidos a cada reinício (inclusive com `npm run dev`): um token que fez logout volta a valer até expirar. Persistir a lista (tabela ou Redis) é um desafio opcional do laboratório e **não** foi implementado.
 - Cada token recebe um `jti` único, para que um novo login logo após o logout não gere um token idêntico ao invalidado.
 - **Migração `add_usuario`:** cria apenas a tabela `usuarios` (`id_usuario`, `nome`, `email` único, `senha`, `created_at`), sem alterar dados existentes. Aplique com `npm run db:migrate` (e, para o banco de testes, com `DATABASE_URL` apontando para ele, como na seção de testes).
 - Arquivos: `src/config/jwt.ts` (assinatura, verificação e blacklist), `src/middlewares/autenticar.ts` (middleware), `src/modules/usuario/` (schema, repository, service, controller, rotas e OpenAPI). O `401` vem de `UnauthorizedError` em `src/shared/errors.ts`.
+
+## Perfis e autorização
+
+Cada conta tem um perfil gravado em `usuarios.perfil`: `ADOTANTE` (com `id_adotante`), `INSTITUICAO` (com `id_instituicao`) ou `ADMIN` (sem vínculo). Um `CHECK` do banco garante essa coerência e os vínculos são únicos (`onDelete: Restrict`).
+
+- **Identidade lida do banco:** depois do `autenticar`, o middleware `identificar` (`src/middlewares/autorizar.ts`) carrega a conta do token em `res.locals.conta`. O perfil nunca vem do corpo, da URL nem do token, e uma alteração de perfil vale já na próxima requisição.
+- **Perfis por rota:** `exigirPerfil(...)` responde `403`. `crudRoutes` recebe as permissões de cada ação (`permissoes<Modulo>` no `*.routes.ts`), e o Swagger usa as mesmas permissões: cada rota informa os perfis na descrição e documenta o `403`.
+- **Propriedade nos services:** os services recebem a `Conta` e conferem a quem o registro pertence. O responsável por cada operação vem da identidade: o `id_instituicao` do animal e o `id_adotante` do pedido. Na instituição e no adotante, o campo pode ser omitido ou ter o próprio id; com outro valor, a resposta é `403`. O Admin informa o responsável e recebe `400` se o omitir.
+- **Regra preservada:** a aprovação continua na transação com o animal bloqueado, com um único `APROVADO` por animal (409) e o índice único parcial no banco.
+
+| Recurso | Adotante | Instituição | Admin |
+| --- | --- | --- | --- |
+| `/animais` (e `/tipo/:tipo`, `/:id/vacinas`) | Consulta os disponíveis (sem adoção aprovada) e os que ele pediu | Gerencia somente os seus; não transfere para outra instituição | Tudo |
+| `/matches` (e `/hoje`, `PATCH /:id/status`) | Solicita para si; consulta só os próprios pedidos | Consulta, aprova/recusa (`CANCELADO`) e exclui pedidos dos seus animais | Tudo |
+| `/adotantes` | Consulta e altera só o próprio cadastro | Consulta os adotantes que pediram seus animais | Tudo, inclusive cadastro avulso e exclusão |
+| `/instituicoes` | Consulta | Consulta; altera só o próprio cadastro | Tudo, inclusive cadastro avulso e exclusão |
+| `/vacinas` | Consulta | Mantém o catálogo compartilhado | Tudo |
+| `/animais-vacinas` | — | Somente doses dos seus animais | Tudo |
+| `GET /usuarios` | — | — | Lista as contas |
+
+**Admin:** nunca é criado pelo cadastro público (o schema só aceita `ADOTANTE` e `INSTITUICAO`) nem por rota da API. A atribuição é feita no servidor com `npm run usuario:admin -- --email <conta>`, que exige uma conta existente e sem perfil, não altera a senha e usa a linha do usuário bloqueada na transação.
+
+**Contas antigas (sem perfil):** a migração não lhes concede nada (`perfil` fica `null`). Elas fazem login escolhendo Adotante ou Instituição, mas todas as rotas do sistema respondem `403 Conta sem perfil...` até que `POST /usuarios/perfil` crie **um cadastro novo** e o vincule, uma única vez. Não é possível assumir um adotante ou uma instituição já existente (CPF/CNPJ repetido → 409) nem escolher `ADMIN`.
+
+## Fotos enviadas (upload)
+
+- `POST /fotos` (perfis INSTITUICAO e ADMIN): o corpo é a própria imagem, com `Content-Type: image/*` (sem multipart). Aceita JPG, PNG, GIF e WebP de até 5 MB. O tipo é conferido pelo conteúdo do arquivo (SVG é recusado) e a resposta é `201 { "foto": "/uploads/<uuid>.jpg" }`; formato inválido retorna 415, corpo vazio 400 e excesso de tamanho 413.
+- **Armazenamento:** em disco, na pasta `uploads/` da raiz do back-end (ou em `UPLOADS_DIR`, caminho absoluto ou relativo). Cada arquivo recebe um nome aleatório (UUID) com extensão definida pelo tipo detectado; o nome original nunca é usado. A pasta é criada automaticamente e está no `.gitignore`. Faça backup dela junto com o banco.
+- **Entrega:** `GET /uploads/<arquivo>` é público (a tag `<img>` não envia token), servido como arquivo estático, sem listagem de pasta, com `X-Content-Type-Options: nosniff` e cache longo. Os nomes aleatórios impedem adivinhar endereços.
+- **Vínculo com o registro:** o envio só guarda o arquivo; o campo `foto` de animais e instituições recebe o caminho pelo `POST`/`PUT` normal, que já confere a propriedade (a instituição só altera os próprios animais e o próprio cadastro). Fotos antigas cadastradas por URL (`http...`) continuam funcionando. Arquivos substituídos ou removidos não são apagados automaticamente.
+- No front-end o caminho `/uploads/...` é resolvido pela mesma base da API (`/api` no proxy do Vite).
 
 ## Documentação com Swagger (OpenAPI)
 
@@ -228,11 +263,13 @@ npm run db:migrate
 npm run migration:status
 ```
 
+A migração `add_perfil_usuario` adiciona a `usuarios` as colunas anuláveis `perfil`, `id_adotante` e `id_instituicao`, com `UNIQUE`, FKs `ON DELETE RESTRICT` e o `CHECK usuario_perfil_coerente`. Ela é só aditiva: nenhum dado é apagado e as contas existentes ficam sem perfil. Aplique com `npm run db:migrate` e, se for o caso, promova o administrador com `npm run usuario:admin -- --email <conta>`.
+
 O histórico foi preservado integralmente: baseline das seis entidades, adição de `Instituicao.foto` e a migração `add_data_nascimento_adotante_e_apelido_animal` (colunas `adotantes.data_nascimento` e `animais.apelido`, ambas opcionais, portanto seguras para tabelas com dados). Depois de atualizar o código, aplique-a com `npm run db:migrate`. As importações relativas dos snapshots continuam válidas. `db:migrate` pode aplicar o histórico desde um banco vazio; `db:init` prepara um banco novo diretamente na versão atual.
 
 ## Testes
 
-Os testes unitários verificam os tempos de 2, 3 e 4 segundos com timers simulados, a ordem e a interrupção das etapas, sem PostgreSQL. Os testes de validação (`test/validacao.test.ts`, sem banco) cobrem os schemas Zod: mensagens, conversões, idade mínima e atualização parcial. Os testes de integração fazem login a cada cenário e também conferem a autenticação, `/docs` e `/docs.json` e a validação do `:id`. Eles exercitam CRUD, rotas básicas, persistência, validações, FKs, aprovação concorrente e o fluxo de Promises no banco real.
+Os testes unitários verificam os tempos de 2, 3 e 4 segundos com timers simulados, a ordem e a interrupção das etapas, sem PostgreSQL. Os testes de validação (`test/validacao.test.ts`, sem banco) cobrem os schemas Zod: mensagens, conversões, idade mínima e atualização parcial. Os testes de integração criam, a cada cenário, um Admin (pelo mesmo service do comando), uma instituição e um adotante pelo cadastro público. Eles conferem os fluxos e as tentativas sem permissão de cada perfil, a conta antiga sem perfil, a escolha do perfil no login e a promoção a Admin, além da autenticação, `/docs` e `/docs.json` e a validação do `:id`. Eles exercitam CRUD, rotas básicas, persistência, validações, FKs, aprovação concorrente e o fluxo de Promises no banco real.
 
 Para executar toda a suíte com o banco de testes do Compose:
 
@@ -261,7 +298,7 @@ MatchAdotivo/
   src/
     server.ts
     app.ts
-    cli/adocao.ts
+    cli/                adocao.ts e admin.ts (atribuição controlada do perfil Admin)
     prisma/
     shared/            schemas Zod, validate, erros, CRUD genérico e geração do OpenAPI
     modules/
@@ -289,6 +326,7 @@ As ferramentas são iniciadas por `node`. `.npmrc` desabilita links simbólicos 
 | Laboratório III: TypeScript, Prisma, PostgreSQL e CRUD | Configuração na raiz, `src/prisma/`, módulos e `migrations/` |
 | Laboratório IV: Zod, DTOs, erros padronizados e migração | `src/shared/schemas.ts`, `validate.ts`, `erros.ts`, `*.schema.ts` e `*.types.ts` dos módulos, `migrations/` |
 | Laboratório VIII: Autenticação com JWT e bcrypt | `src/config/jwt.ts`, `src/middlewares/autenticar.ts`, `src/modules/usuario/`, migração `add_usuario` |
+| Perfis Adotante, Instituição e Admin | `src/middlewares/autorizar.ts`, `crudRoutes` com permissões, services com `Conta`, `src/cli/admin.ts`, migração `add_perfil_usuario` |
 | Laboratório VII: Services e erros da aplicação | `<modulo>.service.ts` em cada módulo, `src/shared/errors.ts` e `GET /matches/hoje` |
 | Laboratório VI: Repository | `<modulo>.repo.ts` em cada módulo e `src/shared/repository.ts` |
 | Laboratório V: Swagger/OpenAPI, validação do `:id` e erros globais | `src/shared/openapi*.ts`, `error.schema.ts`, `*.openapi.ts` dos módulos, `/docs` em `src/app.ts` |

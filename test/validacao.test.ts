@@ -8,7 +8,8 @@ import { createAnimalSchema, updateAnimalSchema, filtroTipoSchema } from '../src
 import { createInstituicaoSchema, updateInstituicaoSchema } from '../src/modules/instituicao/instituicao.schema';
 import { createVacinaSchema } from '../src/modules/vacina/vacina.schema';
 import { createAnimalVacinaSchema } from '../src/modules/animal-vacina/animal-vacina.schema';
-import { createMatchSchema, updateMatchSchema } from '../src/modules/match/match.schema';
+import { createMatchSchema, solicitarMatchSchema, updateMatchSchema } from '../src/modules/match/match.schema';
+import { createUsuarioSchema, loginSchema, perfilSchema } from '../src/modules/usuario/usuario.schema';
 
 // Resultado simplificado de uma validação com falha: [campo, mensagem].
 function erros(schema: z.ZodType, dados: unknown): [string, string][] {
@@ -114,14 +115,15 @@ test('instituição normaliza o CNPJ e trata a foto opcional', () => {
   assert.equal(createInstituicaoSchema.safeParse({ cnpj: '00000000000001', razao_social: 'a'.repeat(201), endereco: 'x' }).success, false);
 });
 
-test('animal: tipo em minúsculas, datas DATE, apelido opcional e instituição obrigatória', () => {
+test('animal: tipo em minúsculas, datas DATE, apelido opcional e instituição validada quando informada', () => {
   const dados = aprovado(createAnimalSchema, { tipo: ' GATO ', id_instituicao: 1, data_nascimento: '2024-02-29', apelido: 'Mimi', id_animal: 9 });
   assert.equal(dados.tipo, 'gato');
   assert.equal(dados.data_nascimento, '2024-02-29');
   assert.equal(dados.apelido, 'Mimi');
   assert.equal('id_animal' in dados, false);
   assert.equal(aprovado(createAnimalSchema, { tipo: 'cachorro', id_instituicao: 1 }).apelido, undefined);
-  assert.deepEqual(erros(createAnimalSchema, { tipo: 'gato' }), [['id_instituicao', 'id_instituicao é obrigatório.']]);
+  // A instituição vem da identidade; só o administrador precisa informá-la (regra do service).
+  assert.equal(aprovado(createAnimalSchema, { tipo: 'gato' }).id_instituicao, undefined);
   for (const id of [0, -1, 1.5, '1', 2147483648]) {
     assert.deepEqual(erros(createAnimalSchema, { tipo: 'gato', id_instituicao: id }).map(([campo]) => campo), ['id_instituicao'], String(id));
   }
@@ -149,4 +151,52 @@ test('match nasce PENDENTE e só o status pode ser atualizado', () => {
   assert.deepEqual(erros(updateMatchSchema, { status: 'FINALIZADO' }), [['status', 'status deve ser um de: PENDENTE, EM ANDAMENTO, APROVADO, CANCELADO.']]);
   assert.equal(updateMatchSchema.safeParse({ id_animal: 9 }).success, false);
   assert.equal(updateMatchSchema.safeParse({}).success, false);
+});
+
+test('pedido pela API: id_adotante opcional (definido pela identidade) e status inicial PENDENTE', () => {
+  assert.deepEqual(aprovado(solicitarMatchSchema, { id_animal: 2 }), { id_adotante: undefined, id_animal: 2 });
+  assert.deepEqual(aprovado(solicitarMatchSchema, { id_adotante: 1, id_animal: 2 }), { id_adotante: 1, id_animal: 2 });
+  assert.deepEqual(erros(solicitarMatchSchema, { id_animal: 2, status: 'APROVADO' }), [['status', 'O status inicial deve ser PENDENTE.']]);
+});
+
+test('criação de conta: apenas ADOTANTE ou INSTITUICAO, com o cadastro validado pelos schemas dos módulos', () => {
+  const acesso = { nome: 'Maria da Silva', email: 'Maria@Email.com', senha: 'senhaSegura123' };
+  const comAdotante = aprovado(createUsuarioSchema, { ...acesso, perfil: 'ADOTANTE', adotante });
+  assert.equal(comAdotante.email, 'maria@email.com');
+  assert.ok(comAdotante.perfil === 'ADOTANTE' && comAdotante.adotante.cpf === '00000000001');
+  aprovado(createUsuarioSchema, { ...acesso, perfil: 'INSTITUICAO', instituicao: { cnpj: '00000000000001', razao_social: 'Abrigo', endereco: 'Rua' } });
+  for (const perfil of [undefined, 'ADMIN', 'admin', 'OUTRO']) {
+    assert.deepEqual(erros(createUsuarioSchema, { ...acesso, perfil, adotante }), [['perfil', 'perfil deve ser um de: ADOTANTE, INSTITUICAO.']], String(perfil));
+  }
+  assert.deepEqual(erros(createUsuarioSchema, { ...acesso, perfil: 'ADOTANTE' }).map(([campo]) => campo), ['adotante']);
+  assert.deepEqual(erros(createUsuarioSchema, { ...acesso, perfil: 'ADOTANTE', adotante: { ...adotante, cpf: '1' } }).map(([campo]) => campo), ['adotante.cpf']);
+  assert.deepEqual(erros(perfilSchema, { perfil: 'ADMIN' }), [['perfil', 'perfil deve ser um de: ADOTANTE, INSTITUICAO.']]);
+  assert.deepEqual(erros(createUsuarioSchema, []), [['', 'Envie um objeto JSON.']]);
+});
+
+test('login exige a escolha de um dos três perfis', () => {
+  const credenciais = { email: 'a@b.com', senha: 'x' };
+  for (const perfil of ['ADOTANTE', 'INSTITUICAO', 'ADMIN']) assert.equal(aprovado(loginSchema, { ...credenciais, perfil }).perfil, perfil);
+  assert.deepEqual(erros(loginSchema, credenciais), [['perfil', 'perfil deve ser um de: ADOTANTE, INSTITUICAO, ADMIN.']]);
+});
+
+test('upload de foto: tipo pelo conteúdo, nome aleatório e rejeição de formatos inválidos', async () => {
+  const { mkdtempSync, existsSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join, basename } = await import('node:path');
+  const { salvarFoto } = await import('../src/shared/upload');
+  const pasta = mkdtempSync(join(tmpdir(), 'uploads-'));
+  process.env.UPLOADS_DIR = pasta;
+  try {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0]);
+    const caminho = await salvarFoto(png);
+    assert.match(caminho, /^\/uploads\/[0-9a-f-]{36}\.png$/);
+    assert.ok(existsSync(join(pasta, basename(caminho))));
+    await assert.rejects(salvarFoto(Buffer.from('<svg onload="alert(1)"></svg>')), { statusCode: 415 });
+    await assert.rejects(salvarFoto(Buffer.alloc(0)), { statusCode: 400 });
+    await assert.rejects(salvarFoto({}), { statusCode: 400 });
+  } finally {
+    delete process.env.UPLOADS_DIR;
+    rmSync(pasta, { recursive: true, force: true });
+  }
 });

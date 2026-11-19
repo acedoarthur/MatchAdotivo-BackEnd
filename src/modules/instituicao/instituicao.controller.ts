@@ -1,6 +1,7 @@
 import type { Database } from '../../prisma/db';
 import type { CrudController } from '../../shared/crud.routes';
 import { lerId } from '../../shared/validacao';
+import { contaDe } from '../../middlewares/autorizar';
 import { instituicaoService } from './instituicao.service';
 import type { CreateInstituicaoDTO, UpdateInstituicaoDTO } from './instituicao.types';
 
@@ -21,7 +22,7 @@ export function instituicaoController(db: Database): CrudController {
     },
     update: async (req, res) => {
       const data: UpdateInstituicaoDTO = req.body;
-      res.json(await service.update(lerId(req), data));
+      res.json(await service.update(contaDe(res), lerId(req), data));
     },
     remove: async (req, res) => {
       await service.delete(lerId(req));

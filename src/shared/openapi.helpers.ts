@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { OpenAPIRegistry, RouteConfig } from '@asteasolutions/zod-to-openapi';
 import { errorSchema, validationErrorSchema } from './error.schema';
 import { idParamsSchema } from './schemas';
+import type { Permissoes } from './crud.routes';
+import type { Perfil } from '../modules/usuario/usuario.types';
 
 export const json = (schema: z.ZodType) => ({ 'application/json': { schema } });
 
@@ -18,11 +20,21 @@ export const erro413 = { description: 'Corpo maior que 100 KB', content: json(er
 export const seguranca = [{ bearerAuth: [] }];
 export const erro401 = { description: 'Token ausente, inválido, expirado ou invalidado pelo logout', content: json(errorSchema) };
 export const erro500 = { description: 'Erro interno do servidor', content: json(errorSchema) };
+export const erro403 = { description: 'Perfil sem permissão, conta sem perfil ou registro de outra conta', content: json(errorSchema) };
 export const erro = (description: string) => ({ description, content: json(errorSchema) });
 
-/** Registra uma rota que exige o token: acrescenta o cadeado (security) e a resposta 401. */
-export function protegida(registry: OpenAPIRegistry, rota: RouteConfig) {
-  registry.registerPath({ ...rota, security: seguranca, responses: { ...rota.responses, 401: erro401 } });
+/**
+ * Registra uma rota que exige o token: acrescenta o cadeado (security) e a resposta 401.
+ * Com `perfis`, informa quem pode usá-la e acrescenta a resposta 403.
+ */
+export function protegida(registry: OpenAPIRegistry, rota: RouteConfig, perfis?: readonly Perfil[]) {
+  const description = perfis && [`Perfis: ${perfis.join(', ')}.`, rota.description].filter(Boolean).join(' ');
+  registry.registerPath({
+    ...rota,
+    ...(description && { description }),
+    security: seguranca,
+    responses: { ...rota.responses, 401: erro401, ...(perfis && { 403: erro403 }) },
+  });
 }
 
 interface ConfigCrud {
@@ -36,26 +48,31 @@ interface ConfigCrud {
   escrita?: { 404?: string; 409?: string };
   /** Motivo do 409 ao excluir, quando há registros dependentes. */
   conflitoExclusao?: string;
+  /** Perfis de cada ação (as mesmas permissões das rotas); ação ausente não é documentada. */
+  perfis: Permissoes;
+  /** Regra de escopo ou propriedade de cada ação, acrescentada à descrição. */
+  regras?: Partial<Record<keyof Permissoes, string>>;
 }
 
-/** Registra as cinco rotas padrão do CRUD de uma entidade. */
+/** Registra as rotas do CRUD de uma entidade permitidas em `perfis`. */
 export function registrarCrud(registry: OpenAPIRegistry, c: ConfigCrud) {
   const tags = [c.tag];
   const naoEncontrado = erro('Registro não encontrado');
-  const { escrita = {} } = c;
+  const { escrita = {}, perfis, regras = {} } = c;
+  const descrever = (acao: keyof Permissoes, padrao?: string) => [padrao, regras[acao]].filter(Boolean).join('. ') || undefined;
 
-  protegida(registry, {
+  if (perfis.getAll) protegida(registry, {
     method: 'get', path: c.caminho, tags, summary: `Listar ${c.nome}`,
-    description: 'Retorna todos os registros, ordenados pelo id',
+    description: descrever('getAll', 'Retorna os registros visíveis ao perfil, ordenados pelo id'),
     responses: { 200: { description: 'Lista', content: json(z.array(c.responseSchema)) }, 500: erro500 },
-  });
-  protegida(registry, {
-    method: 'get', path: `${c.caminho}/{id}`, tags, summary: `Buscar ${c.nome} por id`,
+  }, perfis.getAll);
+  if (perfis.getById) protegida(registry, {
+    method: 'get', path: `${c.caminho}/{id}`, tags, summary: `Buscar ${c.nome} por id`, description: descrever('getById'),
     request: { params: idParamsSchema },
     responses: { 200: { description: 'Registro encontrado', content: json(c.responseSchema) }, 400: erro400, 404: naoEncontrado, 500: erro500 },
-  });
-  protegida(registry, {
-    method: 'post', path: c.caminho, tags, summary: `Cadastrar ${c.nome}`,
+  }, perfis.getById);
+  if (perfis.create) protegida(registry, {
+    method: 'post', path: c.caminho, tags, summary: `Cadastrar ${c.nome}`, description: descrever('create'),
     request: { body: { description: 'Dados do cadastro', required: true, content: json(c.createSchema) } },
     responses: {
       201: { description: 'Cadastrado; o cabeçalho Location aponta para o registro', content: json(c.responseSchema) },
@@ -65,10 +82,10 @@ export function registrarCrud(registry: OpenAPIRegistry, c: ConfigCrud) {
       413: erro413,
       500: erro500,
     },
-  });
-  protegida(registry, {
+  }, perfis.create);
+  if (perfis.update) protegida(registry, {
     method: 'put', path: `${c.caminho}/{id}`, tags, summary: `Atualizar ${c.nome}`,
-    description: 'Atualiza parcialmente: envie apenas os campos que deseja alterar',
+    description: descrever('update', 'Atualiza parcialmente: envie apenas os campos que deseja alterar'),
     request: { params: idParamsSchema, body: { description: 'Campos a atualizar', required: true, content: json(c.updateSchema) } },
     responses: {
       200: { description: 'Atualizado', content: json(c.responseSchema) },
@@ -78,9 +95,9 @@ export function registrarCrud(registry: OpenAPIRegistry, c: ConfigCrud) {
       413: erro413,
       500: erro500,
     },
-  });
-  protegida(registry, {
-    method: 'delete', path: `${c.caminho}/{id}`, tags, summary: `Excluir ${c.nome}`,
+  }, perfis.update);
+  if (perfis.remove) protegida(registry, {
+    method: 'delete', path: `${c.caminho}/{id}`, tags, summary: `Excluir ${c.nome}`, description: descrever('remove'),
     request: { params: idParamsSchema },
     responses: {
       204: { description: 'Excluído (sem conteúdo)' },
@@ -89,5 +106,5 @@ export function registrarCrud(registry: OpenAPIRegistry, c: ConfigCrud) {
       ...(c.conflitoExclusao && { 409: erro(c.conflitoExclusao) }),
       500: erro500,
     },
-  });
+  }, perfis.remove);
 }

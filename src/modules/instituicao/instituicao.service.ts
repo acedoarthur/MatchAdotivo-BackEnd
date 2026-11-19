@@ -1,6 +1,9 @@
-import type { Database } from '../../prisma/db';
+import type { Database, Transaction } from '../../prisma/db';
 import { ConflictError } from '../../shared/errors';
-import { encontrado } from '../../shared/validacao';
+import { encontrado, exigir } from '../../shared/validacao';
+import type { Conta } from '../usuario/usuario.types';
+import { animalRepository } from '../animal/animal.repo';
+import { usuarioRepository } from '../usuario/usuario.repo';
 import { instituicaoRepository } from './instituicao.repo';
 import type { CreateInstituicaoDTO, UpdateInstituicaoDTO } from './instituicao.types';
 
@@ -8,8 +11,10 @@ import type { CreateInstituicaoDTO, UpdateInstituicaoDTO } from './instituicao.t
 Regras de negócio da instituição. O service não conhece o HTTP: recebe dados, aplica as
 regras e devolve o resultado ou lança um erro da aplicação (404, 409...).
 */
-export function instituicaoService(db: Database) {
-  const repo = instituicaoRepository(db);
+export function instituicaoService(db: Database, tx?: Transaction) {
+  const repo = instituicaoRepository(db, tx);
+  const animais = animalRepository(db, tx);
+  const usuarios = usuarioRepository(db, tx);
   const service = {
     getAll: () => repo.findAll(),
 
@@ -23,9 +28,11 @@ export function instituicaoService(db: Database) {
       return repo.create(data);
     },
 
-    // A instituição precisa existir e o novo CNPJ não pode pertencer a outra.
-    update: async (id: number, data: UpdateInstituicaoDTO) => {
+    // A instituição precisa existir; só ela mesma (ou o administrador) altera o cadastro.
+    // O novo CNPJ não pode pertencer a outra.
+    update: async (conta: Conta, id: number, data: UpdateInstituicaoDTO) => {
       await service.findById(id);
+      exigir(conta.perfil === 'ADMIN' || conta.id_instituicao === id, 'Somente a própria instituição pode alterar este cadastro.', 403);
       if (data.cnpj) {
         const comCnpj = await repo.findByCnpj(data.cnpj);
         if (comCnpj && comCnpj.id_instituicao !== id) throw new ConflictError('CNPJ já utilizado por outra instituição');
@@ -33,9 +40,16 @@ export function instituicaoService(db: Database) {
       return encontrado(await repo.update(id, data));
     },
 
-    // Instituições com animais são protegidas pelo banco (onDelete: Restrict → 409).
+    // Somente o administrador (rota). A restrição é preservada: nada é apagado em cascata. Antes de excluir,
+    // explica o impedimento (409); as chaves estrangeiras do banco continuam como rede de segurança.
     delete: async (id: number) => {
       await service.findById(id);
+      if (await animais.existsByInstituicao(id)) {
+        throw new ConflictError('Não é possível excluir: a instituição possui animais cadastrados. Transfira os animais para outra instituição (editando cada animal) ou exclua-os antes — animais com vacinações ou pedidos de adoção precisam ter esses registros tratados primeiro.');
+      }
+      if (await usuarios.existsByInstituicao(id)) {
+        throw new ConflictError('Não é possível excluir: existe uma conta de usuário vinculada a esta instituição. As contas não são apagadas automaticamente; a instituição só pode ser excluída depois que o vínculo for removido.');
+      }
       return encontrado(await repo.delete(id));
     },
   };

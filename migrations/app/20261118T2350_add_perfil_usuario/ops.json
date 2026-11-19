@@ -1,0 +1,338 @@
+[
+  {
+    "id": "column.public.usuarios.id_adotante",
+    "label": "Add column \"id_adotante\" to \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "id_adotante",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"id_adotante\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "id_adotante"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"id_adotante\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD COLUMN \"id_adotante\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"id_adotante\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "id_adotante"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.usuarios.id_instituicao",
+    "label": "Add column \"id_instituicao\" to \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "id_instituicao",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"id_instituicao\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "id_instituicao"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"id_instituicao\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD COLUMN \"id_instituicao\" int4"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"id_instituicao\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "id_instituicao"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.usuarios.perfil",
+    "label": "Add column \"perfil\" to \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "perfil",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"perfil\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "perfil"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"perfil\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD COLUMN \"perfil\" character varying(20)"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"perfil\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "usuarios",
+          "perfil"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.usuarios.usuario_perfil_coerente_2d044a9d",
+    "label": "Add check constraint \"usuario_perfil_coerente_2d044a9d\" on \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "usuario_perfil_coerente_2d044a9d",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"usuario_perfil_coerente_2d044a9d\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuario_perfil_coerente_2d044a9d",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"usuario_perfil_coerente_2d044a9d\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD CONSTRAINT \"usuario_perfil_coerente_2d044a9d\" CHECK ((perfil IS NULL AND id_adotante IS NULL AND id_instituicao IS NULL) OR (perfil = 'ADOTANTE' AND id_adotante IS NOT NULL AND id_instituicao IS NULL) OR (perfil = 'INSTITUICAO' AND id_instituicao IS NOT NULL AND id_adotante IS NULL) OR (perfil = 'ADMIN' AND id_adotante IS NULL AND id_instituicao IS NULL))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"usuario_perfil_coerente_2d044a9d\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuario_perfil_coerente_2d044a9d",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.usuarios.usuarios_id_adotante_key",
+    "label": "Add unique constraint on \"usuarios\" (id_adotante)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "usuarios_id_adotante_key",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"usuarios_id_adotante_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_adotante_key",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"usuarios_id_adotante_key\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD CONSTRAINT \"usuarios_id_adotante_key\" UNIQUE (\"id_adotante\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"usuarios_id_adotante_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_adotante_key",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.usuarios.usuarios_id_instituicao_key",
+    "label": "Add unique constraint on \"usuarios\" (id_instituicao)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "usuarios_id_instituicao_key",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"usuarios_id_instituicao_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_instituicao_key",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"usuarios_id_instituicao_key\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\" ADD CONSTRAINT \"usuarios_id_instituicao_key\" UNIQUE (\"id_instituicao\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"usuarios_id_instituicao_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_instituicao_key",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.usuarios.usuarios_id_adotante_fkey",
+    "label": "Add foreign key \"usuarios_id_adotante_fkey\" on \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "usuarios_id_adotante_fkey",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"usuarios_id_adotante_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_adotante_fkey",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"usuarios_id_adotante_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\"\nADD CONSTRAINT \"usuarios_id_adotante_fkey\"\nFOREIGN KEY (\"id_adotante\")\nREFERENCES \"public\".\"adotantes\" (\"id_adotante\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"usuarios_id_adotante_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_adotante_fkey",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.usuarios.usuarios_id_instituicao_fkey",
+    "label": "Add foreign key \"usuarios_id_instituicao_fkey\" on \"usuarios\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "usuarios_id_instituicao_fkey",
+        "table": "usuarios"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"usuarios_id_instituicao_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_instituicao_fkey",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"usuarios_id_instituicao_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"usuarios\"\nADD CONSTRAINT \"usuarios_id_instituicao_fkey\"\nFOREIGN KEY (\"id_instituicao\")\nREFERENCES \"public\".\"instituicoes\" (\"id_instituicao\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"usuarios_id_instituicao_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "usuarios_id_instituicao_fkey",
+          "public",
+          "\"public\".\"usuarios\""
+        ]
+      }
+    ]
+  }
+]

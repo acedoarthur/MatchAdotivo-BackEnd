@@ -16,11 +16,11 @@ export const tratarErros: ErrorRequestHandler = (erro: unknown, req, res, next) 
     });
     return;
   }
-  const info = erro as { type?: string };
+  const info = erro as { type?: string; limit?: number };
   if (info.type === 'entity.parse.failed') {
     res.status(400).json({ error: 'JSON inválido.' });
   } else if (info.type === 'entity.too.large') {
-    res.status(413).json({ error: 'O corpo excede o limite de 100 KB.' });
+    res.status(413).json({ error: `O corpo excede o limite de ${Math.round((info.limit ?? 102400) / 1024)} KB.` });
   } else if (erro instanceof URIError) {
     res.status(400).json({ error: 'Parâmetro de rota com codificação inválida.' });
   } else {

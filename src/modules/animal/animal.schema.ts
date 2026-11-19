@@ -12,7 +12,10 @@ const campos = {
   detalhes: varchar('detalhes', 65535).nullish().openapi({ example: 'Dócil e brincalhão' }),
   foto: varchar('foto', 500).nullish().openapi({ example: 'https://example.com/animal.jpg' }),
   apelido: varchar('apelido', 100).nullish().openapi({ example: 'Bolinha', description: 'Apelido do animal (opcional)' }),
-  id_instituicao: idSchema('id_instituicao').openapi({ example: 1, description: 'Instituição que abriga o animal (obrigatória)' }),
+  id_instituicao: idSchema('id_instituicao').optional().openapi({
+    example: 1,
+    description: 'Instituição que abriga o animal. A instituição logada usa o próprio cadastro (pode omitir); o administrador deve informar.',
+  }),
 };
 
 export const createAnimalSchema = cadastro(campos).openapi('CreateAnimalInput');

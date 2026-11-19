@@ -34,7 +34,7 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'0f08593dfd967a13f9fe4fd90ed8c8533294b76b20256bb2d92d1ad7c7be03eb'>;
+  StorageHashBase<'59b33a22d609d4d74ff5c3aea6a3e612a3f8d769f4b4f9761795ec2e9e449958'>;
 export type ExecutionHash = ExecutionHashBase<string>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
@@ -293,8 +293,11 @@ export type FieldOutputTypes = {
     readonly Usuario: {
       readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
       readonly email: Varchar<255>;
+      readonly id_adotante: CodecTypes['pg/int4@1']['output'] | null;
+      readonly id_instituicao: CodecTypes['pg/int4@1']['output'] | null;
       readonly id_usuario: CodecTypes['pg/int4@1']['output'];
       readonly nome: Varchar<200>;
+      readonly perfil: Varchar<20> | null;
       readonly senha: Varchar<100>;
     };
     readonly Vacina: {
@@ -349,8 +352,11 @@ export type FieldInputTypes = {
     readonly Usuario: {
       readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['input'];
       readonly email: CodecTypes['sql/varchar@1']['input'];
+      readonly id_adotante: CodecTypes['pg/int4@1']['input'] | null;
+      readonly id_instituicao: CodecTypes['pg/int4@1']['input'] | null;
       readonly id_usuario: CodecTypes['pg/int4@1']['input'];
       readonly nome: CodecTypes['sql/varchar@1']['input'];
+      readonly perfil: CodecTypes['sql/varchar@1']['input'] | null;
       readonly senha: CodecTypes['sql/varchar@1']['input'];
     };
     readonly Vacina: {
@@ -405,8 +411,11 @@ export type StorageColumnTypes = {
     readonly usuarios: {
       readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
       readonly email: Varchar<255>;
+      readonly id_adotante: CodecTypes['pg/int4@1']['output'] | null;
+      readonly id_instituicao: CodecTypes['pg/int4@1']['output'] | null;
       readonly id_usuario: CodecTypes['pg/int4@1']['output'];
       readonly nome: Varchar<200>;
+      readonly perfil: Varchar<20> | null;
       readonly senha: Varchar<100>;
     };
     readonly vacinas: {
@@ -461,8 +470,11 @@ export type StorageColumnInputTypes = {
     readonly usuarios: {
       readonly created_at: CodecTypes['pg/timestamptz-temporal@1']['input'];
       readonly email: CodecTypes['sql/varchar@1']['input'];
+      readonly id_adotante: CodecTypes['pg/int4@1']['input'] | null;
+      readonly id_instituicao: CodecTypes['pg/int4@1']['input'] | null;
       readonly id_usuario: CodecTypes['pg/int4@1']['input'];
       readonly nome: CodecTypes['sql/varchar@1']['input'];
+      readonly perfil: CodecTypes['sql/varchar@1']['input'] | null;
       readonly senha: CodecTypes['sql/varchar@1']['input'];
     };
     readonly vacinas: {
@@ -484,7 +496,8 @@ export namespace Models {
     tipo_residencia: Varchar<30>;
     tipos_animais: CodecTypes['pg/text@1']['output'] | null;
     matches: public_Match[];
-    readonly [RelationKeys]?: 'matches';
+    usuario: public_Usuario | null;
+    readonly [RelationKeys]?: 'matches' | 'usuario';
   };
   export type public_Animal = {
     apelido: Varchar<100> | null;
@@ -516,7 +529,8 @@ export namespace Models {
     id_instituicao: CodecTypes['pg/int4@1']['output'];
     razao_social: Varchar<200>;
     animais: public_Animal[];
-    readonly [RelationKeys]?: 'animais';
+    usuario: public_Usuario | null;
+    readonly [RelationKeys]?: 'animais' | 'usuario';
   };
   export type public_Match = {
     data_pedido: CodecTypes['pg/timestamptz-temporal@1']['output'];
@@ -531,10 +545,15 @@ export namespace Models {
   export type public_Usuario = {
     created_at: CodecTypes['pg/timestamptz-temporal@1']['output'];
     email: Varchar<255>;
+    id_adotante: CodecTypes['pg/int4@1']['output'] | null;
+    id_instituicao: CodecTypes['pg/int4@1']['output'] | null;
     id_usuario: CodecTypes['pg/int4@1']['output'];
     nome: Varchar<200>;
+    perfil: Varchar<20> | null;
     senha: Varchar<100>;
-    readonly [RelationKeys]?: never;
+    adotante: public_Adotante | null;
+    instituicao: public_Instituicao | null;
+    readonly [RelationKeys]?: 'adotante' | 'instituicao';
   };
   export type public_Vacina = {
     id_vacina: CodecTypes['pg/int4@1']['output'];
@@ -918,6 +937,16 @@ type ContractBase = Omit<
                   readonly nullable: false;
                   readonly typeParams: { readonly length: 255 };
                 };
+                readonly id_adotante: {
+                  readonly nativeType: 'int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: true;
+                };
+                readonly id_instituicao: {
+                  readonly nativeType: 'int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: true;
+                };
                 readonly id_usuario: {
                   readonly nativeType: 'int4';
                   readonly codecId: 'pg/int4@1';
@@ -933,6 +962,12 @@ type ContractBase = Omit<
                   readonly nullable: false;
                   readonly typeParams: { readonly length: 200 };
                 };
+                readonly perfil: {
+                  readonly nativeType: 'character varying';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly nullable: true;
+                  readonly typeParams: { readonly length: 20 };
+                };
                 readonly senha: {
                   readonly nativeType: 'character varying';
                   readonly codecId: 'sql/varchar@1';
@@ -941,9 +976,38 @@ type ContractBase = Omit<
                 };
               };
               primaryKey: { readonly columns: readonly ['id_usuario'] };
-              uniques: readonly [{ readonly columns: readonly ['email'] }];
+              uniques: readonly [
+                { readonly columns: readonly ['email'] },
+                { readonly columns: readonly ['id_adotante'] },
+                { readonly columns: readonly ['id_instituicao'] },
+              ];
               indexes: readonly [];
-              foreignKeys: readonly [];
+              foreignKeys: readonly [
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'usuarios';
+                    readonly columns: readonly ['id_adotante'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'adotantes';
+                    readonly columns: readonly ['id_adotante'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'usuarios';
+                    readonly columns: readonly ['id_instituicao'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'instituicoes';
+                    readonly columns: readonly ['id_instituicao'];
+                  };
+                },
+              ];
             };
             readonly vacinas: {
               columns: {
@@ -1062,6 +1126,18 @@ type ContractBase = Omit<
                   readonly model: 'Match';
                 };
                 readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id_adotante'];
+                  readonly targetFields: readonly ['id_adotante'];
+                };
+              };
+              readonly usuario: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Usuario';
+                };
+                readonly cardinality: '1:1';
+                readonly nullable: true;
                 readonly on: {
                   readonly localFields: readonly ['id_adotante'];
                   readonly targetFields: readonly ['id_adotante'];
@@ -1293,6 +1369,18 @@ type ContractBase = Omit<
                   readonly targetFields: readonly ['id_instituicao'];
                 };
               };
+              readonly usuario: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Usuario';
+                };
+                readonly cardinality: '1:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['id_instituicao'];
+                  readonly targetFields: readonly ['id_instituicao'];
+                };
+              };
             };
             readonly storage: {
               readonly table: 'instituicoes';
@@ -1391,6 +1479,14 @@ type ContractBase = Omit<
                   readonly typeParams: { readonly length: 255 };
                 };
               };
+              readonly id_adotante: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly id_instituicao: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
               readonly id_usuario: {
                 readonly nullable: false;
                 readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
@@ -1403,6 +1499,14 @@ type ContractBase = Omit<
                   readonly typeParams: { readonly length: 200 };
                 };
               };
+              readonly perfil: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'sql/varchar@1';
+                  readonly typeParams: { readonly length: 20 };
+                };
+              };
               readonly senha: {
                 readonly nullable: false;
                 readonly type: {
@@ -1412,15 +1516,43 @@ type ContractBase = Omit<
                 };
               };
             };
-            readonly relations: Record<string, never>;
+            readonly relations: {
+              readonly adotante: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Adotante';
+                };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['id_adotante'];
+                  readonly targetFields: readonly ['id_adotante'];
+                };
+              };
+              readonly instituicao: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Instituicao';
+                };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['id_instituicao'];
+                  readonly targetFields: readonly ['id_instituicao'];
+                };
+              };
+            };
             readonly storage: {
               readonly table: 'usuarios';
               readonly namespaceId: 'public';
               readonly fields: {
                 readonly created_at: { readonly column: 'created_at' };
                 readonly email: { readonly column: 'email' };
+                readonly id_adotante: { readonly column: 'id_adotante' };
+                readonly id_instituicao: { readonly column: 'id_instituicao' };
                 readonly id_usuario: { readonly column: 'id_usuario' };
                 readonly nome: { readonly column: 'nome' };
+                readonly perfil: { readonly column: 'perfil' };
                 readonly senha: { readonly column: 'senha' };
               };
             };

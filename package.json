@@ -22,6 +22,7 @@
     "test": "node scripts/tsx.mjs --test test/*.test.ts",
     "adocao": "node scripts/tsx.mjs src/cli/adocao.ts",
     "adocao:erro": "node scripts/tsx.mjs src/cli/adocao.ts --erro",
+    "usuario:admin": "node scripts/tsx.mjs src/cli/admin.ts",
     "test:unit": "node scripts/tsx.mjs --test test/adocao.test.ts test/validacao.test.ts test/arquitetura.test.ts",
     "test:integration": "node scripts/tsx.mjs --test test/api.test.ts",
     "db:verify": "node node_modules/prisma/dist/prisma.js db verify"

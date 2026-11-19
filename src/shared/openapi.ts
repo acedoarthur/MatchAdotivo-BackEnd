@@ -7,6 +7,7 @@ import { registerAnimalVacinaPaths } from '../modules/animal-vacina/animal-vacin
 import { registerAdotantePaths } from '../modules/adotante/adotante.openapi';
 import { registerMatchPaths } from '../modules/match/match.openapi';
 import { registerUsuarioPaths } from '../modules/usuario/usuario.openapi';
+import { registerUploadPaths } from './upload.openapi';
 
 /** Gera o documento OpenAPI; `servidor` deve ser o endereço em que as rotas respondem. */
 export function gerarDocumentoOpenApi(servidor: string) {
@@ -22,12 +23,13 @@ export function gerarDocumentoOpenApi(servidor: string) {
   registerAnimalVacinaPaths(registry);
   registerAdotantePaths(registry);
   registerMatchPaths(registry);
+  registerUploadPaths(registry);
   return new OpenApiGeneratorV3(registry.definitions).generateDocument({
     openapi: '3.0.0',
     info: {
       title: 'API Match de Adoção',
       version: '1.0.0',
-      description: 'API para cadastrar instituições, animais, vacinas, adotantes e solicitações de adoção (matches). Faça login em POST /usuarios/login e use o botão Authorize (cole somente o token) para chamar as rotas protegidas.',
+      description: 'API para cadastrar instituições, animais, vacinas, adotantes e solicitações de adoção (matches). Crie a conta em POST /usuarios (ADOTANTE ou INSTITUICAO), faça login em POST /usuarios/login e use o botão Authorize (cole somente o token). Cada rota informa os perfis permitidos; 403 indica perfil sem permissão, conta sem perfil ou registro de outra conta.',
     },
     servers: [{ url: servidor, description: 'Servidor local de desenvolvimento' }],
   });
